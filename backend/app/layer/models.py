@@ -26,6 +26,14 @@ Agg = Literal["sum", "count", "avg", "min", "max"]
 
 IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
 QUALIFIED = re.compile(r"^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)?$")
+# A join condition is the one place raw SQL text enters the compiler. It is
+# human-authored, never model-authored, but it is still constrained to
+# equijoins between qualified columns so the layer cannot smuggle in a
+# subquery or a second statement.
+EQUIJOIN = re.compile(
+    r"^[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*\s*=\s*[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*$",
+    re.IGNORECASE,
+)
 
 
 class LayerError(ValueError):
@@ -53,6 +61,17 @@ class Join(BaseModel):
     def _valid_table(cls, v: str) -> str:
         if not QUALIFIED.match(v):
             raise ValueError(f"join target is not a valid table name: {v!r}")
+        return v
+
+    @field_validator("condition")
+    @classmethod
+    def _valid_condition(cls, v: str) -> str:
+        for part in re.split(r"\s+and\s+", v.strip(), flags=re.IGNORECASE):
+            if not EQUIJOIN.match(part.strip()):
+                raise ValueError(
+                    f"join condition must be equijoins of the form "
+                    f"alias.column = alias.column, optionally AND-ed; got {part.strip()!r}"
+                )
         return v
 
 

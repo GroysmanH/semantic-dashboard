@@ -145,3 +145,26 @@ def test_quoted_on_key_still_works(tmp_path):
     body = MINIMAL.replace("    condition: wells.well_id", '    "on": wells.well_id')
     layer = load_layer(write(tmp_path, "jobs", body))
     assert layer["jobs"].joins["wells"].condition.startswith("wells.well_id")
+
+
+@pytest.mark.parametrize("bad", [
+    "wells.well_id = (SELECT 1)",
+    "1=1; DROP TABLE ddh.dim_wells",
+    "wells.well_id > fct.well_id",
+])
+def test_non_equijoin_conditions_are_rejected(tmp_path, bad):
+    """The join condition is the only raw SQL text in the compiler. It is
+    human-authored, but still constrained so the layer cannot smuggle in a
+    subquery or a second statement."""
+    body = MINIMAL.replace("condition: wells.well_id = fct_well_interventions.well_id",
+                           f"condition: {bad}")
+    with pytest.raises(LayerError, match="equijoin"):
+        load_layer(write(tmp_path, "jobs", body))
+
+
+def test_and_ed_equijoin_is_accepted(tmp_path):
+    body = MINIMAL.replace(
+        "condition: wells.well_id = fct_well_interventions.well_id",
+        "condition: wells.well_id = fct_well_interventions.well_id AND "
+        "wells.field_name = fct_well_interventions.contractor")
+    load_layer(write(tmp_path, "jobs", body))
