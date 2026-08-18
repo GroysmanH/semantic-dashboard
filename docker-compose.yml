@@ -1,0 +1,54 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: semantic
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      WAREHOUSE_PASSWORD: ${WAREHOUSE_PASSWORD:-warehouse}
+      APP_PASSWORD: ${APP_PASSWORD:-appsecret}
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d semantic"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  backend:
+    build: ./backend
+    environment:
+      WAREHOUSE_URL: postgresql://warehouse_ro:${WAREHOUSE_PASSWORD:-warehouse}@db:5432/semantic
+      APP_URL: postgresql://app_rw:${APP_PASSWORD:-appsecret}@db:5432/semantic
+      ADMIN_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/semantic
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      LLM_MODEL: ${LLM_MODEL:-claude-sonnet-5}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./db:/db
+      - ./scripts:/scripts
+    depends_on:
+      db:
+        condition: service_healthy
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    image: node:24-alpine
+    working_dir: /app
+    environment:
+      VITE_API_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
