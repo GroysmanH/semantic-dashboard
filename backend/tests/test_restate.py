@@ -98,3 +98,16 @@ def test_single_row_is_not_pluralised(entity):
     assert "1 row," in restate(
         SemanticQuery(entity="well_interventions", measures=["net_gain"]),
         entity, row_count=1, data_max_ts=date(2026, 8, 14))
+
+
+@pytest.mark.parametrize("ts", [
+    date(2026, 8, 14),
+    "2026-08-14",
+    "2026-08-14T00:00:00+00:00",
+])
+def test_freshness_reads_as_a_date_however_it_arrives(entity, ts):
+    """It reaches restate as an ISO string once it has been through JSON;
+    a manager should still see 14 Aug 2026."""
+    out = restate(SemanticQuery(entity="well_interventions", measures=["net_gain"]),
+                  entity, row_count=3, data_max_ts=ts)
+    assert "data through 14 Aug 2026" in out

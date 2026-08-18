@@ -1,0 +1,357 @@
+{
+  "$defs": {
+    "DimensionRef": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "grain": {
+          "anyOf": [
+            {
+              "enum": [
+                "day",
+                "month",
+                "quarter",
+                "year"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Grain"
+        }
+      },
+      "required": [
+        "field"
+      ],
+      "title": "DimensionRef",
+      "type": "object"
+    },
+    "Filter": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "op": {
+          "enum": [
+            "=",
+            "!=",
+            "in",
+            "between",
+            "in_year",
+            "last_n_days"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "items": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "field",
+        "op"
+      ],
+      "title": "Filter",
+      "type": "object"
+    },
+    "OrderBy": {
+      "additionalProperties": false,
+      "properties": {
+        "dir": {
+          "default": "desc",
+          "enum": [
+            "asc",
+            "desc"
+          ],
+          "title": "Dir",
+          "type": "string"
+        },
+        "field": {
+          "title": "Field",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field"
+      ],
+      "title": "OrderBy",
+      "type": "object"
+    },
+    "Render": {
+      "description": "Everything a card needs to draw itself, including the honest version\nof where the numbers came from and how old they are.",
+      "properties": {
+        "chart_hint": {
+          "anyOf": [
+            {
+              "enum": [
+                "line",
+                "bar",
+                "area",
+                "point",
+                "heatmap",
+                "big_number"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chart Hint"
+        },
+        "chart_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chart Type"
+        },
+        "compiled_sql": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Compiled Sql"
+        },
+        "data_max_ts": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Data Max Ts"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        },
+        "error_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Reason"
+        },
+        "fetched_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fetched At"
+        },
+        "from_cache": {
+          "default": false,
+          "title": "From Cache",
+          "type": "boolean"
+        },
+        "hint_rejected": {
+          "default": false,
+          "title": "Hint Rejected",
+          "type": "boolean"
+        },
+        "restatement": {
+          "default": "",
+          "title": "Restatement",
+          "type": "string"
+        },
+        "row_count": {
+          "default": 0,
+          "title": "Row Count",
+          "type": "integer"
+        },
+        "rows": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Rows",
+          "type": "array"
+        },
+        "semantic_query": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SemanticQuery"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "state": {
+          "enum": [
+            "empty",
+            "ready",
+            "broken"
+          ],
+          "title": "State",
+          "type": "string"
+        },
+        "vega_spec": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vega Spec"
+        }
+      },
+      "required": [
+        "state"
+      ],
+      "title": "Render",
+      "type": "object"
+    },
+    "SemanticQuery": {
+      "additionalProperties": false,
+      "description": "One entity, N measures, up to 2 dimensions. Deliberately no joins\nbeyond declared `via` paths, no window functions, no subqueries, and\nno DML \u2014 those are not hard here, they are impossible.",
+      "properties": {
+        "dimensions": {
+          "items": {
+            "$ref": "#/$defs/DimensionRef"
+          },
+          "maxItems": 2,
+          "title": "Dimensions",
+          "type": "array"
+        },
+        "entity": {
+          "title": "Entity",
+          "type": "string"
+        },
+        "filters": {
+          "items": {
+            "$ref": "#/$defs/Filter"
+          },
+          "title": "Filters",
+          "type": "array"
+        },
+        "limit": {
+          "default": 100,
+          "maximum": 10000,
+          "minimum": 1,
+          "title": "Limit",
+          "type": "integer"
+        },
+        "measures": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Measures",
+          "type": "array"
+        },
+        "order_by": {
+          "items": {
+            "$ref": "#/$defs/OrderBy"
+          },
+          "title": "Order By",
+          "type": "array"
+        }
+      },
+      "required": [
+        "entity",
+        "measures"
+      ],
+      "title": "SemanticQuery",
+      "type": "object"
+    }
+  },
+  "description": "A single root so json2ts emits one file with shared $defs.",
+  "properties": {
+    "render": {
+      "$ref": "#/$defs/Render"
+    },
+    "semantic_query": {
+      "$ref": "#/$defs/SemanticQuery"
+    }
+  },
+  "required": [
+    "semantic_query",
+    "render"
+  ],
+  "title": "ApiContract",
+  "type": "object"
+}

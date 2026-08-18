@@ -10,6 +10,10 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
+
+def dt_parse(v: str) -> datetime:
+    return datetime.fromisoformat(v)
+
 from ..layer.models import Entity
 from .query import Filter, SemanticQuery
 
@@ -45,6 +49,18 @@ def _fmt_value(v) -> str:
     return str(v)
 
 
+def _fmt_ts(v) -> str:
+    """The freshness tail reaches here as an ISO string once it has been
+    through JSON, so parse before formatting rather than echoing 2026-07-31
+    at a manager."""
+    if isinstance(v, str):
+        try:
+            v = dt_parse(v)
+        except ValueError:
+            return v
+    return v.strftime("%-d %b %Y")
+
+
 def _filter_phrase(entity: Entity, f: Filter) -> str:
     target = entity.dimensions.get(f.field) or entity.measures.get(f.field)
     label = target.label if target else f.field
@@ -63,7 +79,7 @@ def _filter_phrase(entity: Entity, f: Filter) -> str:
 
 
 def restate(q: SemanticQuery, entity: Entity, row_count: int | None = None,
-            data_max_ts: date | datetime | None = None) -> str:
+            data_max_ts: date | datetime | str | None = None) -> str:
     measures = [
         _AGG_PHRASE[entity.measures[m].agg].format(entity.measures[m].label)
         for m in q.measures
@@ -91,7 +107,7 @@ def restate(q: SemanticQuery, entity: Entity, row_count: int | None = None,
     if row_count is not None:
         tail.append(f"{row_count:,} row{'' if row_count == 1 else 's'}")
     if data_max_ts is not None:
-        tail.append(f"data through {_fmt_value(data_max_ts)}")
+        tail.append(f"data through {_fmt_ts(data_max_ts)}")
     if tail:
         sentence += " — " + ", ".join(tail)
 

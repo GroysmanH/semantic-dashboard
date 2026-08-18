@@ -32,3 +32,14 @@ def layer():
     from app.layer.loader import load_layer
 
     return load_layer(settings.layer_dir)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def pools():
+    """The app opens its pools in the FastAPI lifespan, which pytest never
+    runs; open them here so render-level tests can reach the database."""
+    from app.db import close_pools, open_pools
+
+    open_pools()
+    yield
+    close_pools()
