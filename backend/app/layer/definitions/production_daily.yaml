@@ -1,0 +1,75 @@
+entity: production
+label: Daily Production
+table: ddh.fct_production_daily
+description: One row per well per calendar day of production readings.
+time_column: reading_date
+
+joins:
+  wells:
+    to: ddh.dim_wells
+    condition: wells.well_id = fct_production_daily.well_id
+    confidence: high
+
+dimensions:
+  reading_date:
+    label: reading date
+    type: date
+    grains: [day, month, quarter, year]
+
+  region:
+    label: region
+    type: string
+    via: wells.region_name
+
+  field_name:
+    label: field
+    type: string
+    via: wells.field_name
+
+  well_name:
+    label: well
+    type: string
+    via: wells.well_name
+
+  well_type:
+    label: well type
+    type: string
+    via: wells.well_type
+
+measures:
+  oil:
+    label: oil production
+    agg: sum
+    column: oil_bbl
+    description: Total oil produced, in barrels.
+
+  gas:
+    label: gas production
+    agg: sum
+    column: gas_mcf
+    description: Total gas produced, in thousand cubic feet.
+
+  water:
+    label: water production
+    agg: sum
+    column: water_bbl
+    description: Total water produced, in barrels.
+
+  downtime:
+    label: downtime
+    agg: sum
+    column: downtime_hours
+    description: Total hours a well was not producing.
+
+  avg_oil:
+    label: average daily oil
+    agg: avg
+    column: oil_bbl
+    description: Mean oil rate per well-day, in barrels.
+
+synonyms:
+  oil: [crude, oil rate, oil volume]
+  gas: [natural gas, gas rate]
+  water: [water cut volume, produced water]
+  downtime: [outage, non-productive time, npt]
+  region: [area, oblast]

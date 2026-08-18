@@ -1,0 +1,82 @@
+entity: well_interventions
+label: Well Interventions
+table: ddh.fct_well_interventions
+description: One row per well intervention job.
+time_column: intervention_date
+
+joins:
+  wells:
+    to: ddh.dim_wells
+    condition: wells.well_id = fct_well_interventions.well_id
+    confidence: high
+
+dimensions:
+  intervention_date:
+    label: intervention date
+    type: date
+    grains: [day, month, quarter, year]
+
+  intervention_type:
+    label: intervention type
+    type: string
+    values: [FRAC, WORKOVER, ACIDIZING, PERFORATION]
+
+  status:
+    label: status
+    type: string
+    values: [COMPLETED, CANCELLED, IN_PROGRESS]
+    # TODO: verify. A small number of rows still carry pre-migration integer
+    # codes ('1','2','3') whose business meaning is not established. Until
+    # someone confirms the mapping, this entity is refused at query time.
+    confidence: low
+
+  contractor:
+    label: contractor
+    type: string
+
+  region:
+    label: region
+    type: string
+    via: wells.region_name
+
+  field_name:
+    label: field
+    type: string
+    via: wells.field_name
+
+  well_name:
+    label: well
+    type: string
+    via: wells.well_name
+
+measures:
+  net_gain:
+    label: net gain
+    agg: sum
+    column: net_gain_bbl
+    description: Incremental production in barrels attributed to the intervention.
+
+  avg_net_gain:
+    label: average net gain
+    agg: avg
+    column: net_gain_bbl
+    description: Mean incremental production per job, in barrels.
+
+  cost:
+    label: cost
+    agg: sum
+    column: cost_usd
+    description: Total intervention spend in USD.
+
+  n_jobs:
+    label: number of jobs
+    agg: count
+    column: "*"
+    description: Count of intervention jobs.
+
+synonyms:
+  net_gain: [gain, uplift, incremental production, net gain]
+  n_jobs: [jobs, job count, interventions, number of interventions]
+  cost: [spend, expenditure, capex]
+  region: [area, oblast]
+  intervention_type: [job type, work type]
