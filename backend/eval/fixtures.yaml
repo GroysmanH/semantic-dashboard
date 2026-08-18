@@ -1,0 +1,244 @@
+# 30 held-out questions with their expected semantic query.
+#
+# Written before any prompt tuning, deliberately: fixtures written
+# afterwards measure the tuning rather than the design.
+#
+# `expect: refused` marks questions the system SHOULD decline. A harness
+# that only scores successes overstates what has been built -- roughly a
+# sixth of these are unanswerable on purpose.
+
+- id: oil_by_month
+  question: oil production by month
+  tags: [date-grain]
+  expected:
+    entity: production
+    measures: [oil]
+    dimensions: [{field: reading_date, grain: month}]
+
+- id: oil_by_region
+  question: total oil by region
+  tags: [nominal]
+  expected:
+    entity: production
+    measures: [oil]
+    dimensions: [{field: region}]
+
+- id: oil_2026
+  question: how much oil did we produce in 2026?
+  tags: [filter, no-dimension]
+  expected:
+    entity: production
+    measures: [oil]
+    filters: [{field: reading_date, op: in_year, value: 2026}]
+
+- id: gas_by_quarter
+  question: gas production by quarter
+  tags: [date-grain]
+  expected:
+    entity: production
+    measures: [gas]
+    dimensions: [{field: reading_date, grain: quarter}]
+
+- id: downtime_by_region
+  question: which regions had the most downtime?
+  tags: [nominal, ordering]
+  expected:
+    entity: production
+    measures: [downtime]
+    dimensions: [{field: region}]
+    order_by: [{field: downtime, dir: desc}]
+
+- id: oil_by_month_and_region
+  question: oil by month broken down by region
+  tags: [two-dim]
+  expected:
+    entity: production
+    measures: [oil]
+    dimensions: [{field: reading_date, grain: month}, {field: region}]
+
+- id: crude_synonym
+  question: crude output by field
+  tags: [synonym]
+  expected:
+    entity: production
+    measures: [oil]
+    dimensions: [{field: field_name}]
+
+- id: npt_synonym
+  question: npt by well type
+  tags: [synonym]
+  expected:
+    entity: production
+    measures: [downtime]
+    dimensions: [{field: well_type}]
+
+- id: oil_and_gas
+  question: oil and gas by month
+  tags: [multi-measure]
+  expected:
+    entity: production
+    measures: [oil, gas]
+    dimensions: [{field: reading_date, grain: month}]
+
+- id: water_last_90
+  question: water produced in the last 90 days
+  tags: [relative-date]
+  expected:
+    entity: production
+    measures: [water]
+    filters: [{field: reading_date, op: last_n_days, value: 90}]
+
+- id: avg_oil_by_region
+  question: average daily oil per well by region
+  tags: [aggregation]
+  expected:
+    entity: production
+    measures: [avg_oil]
+    dimensions: [{field: region}]
+
+- id: oil_by_year
+  question: yearly oil production
+  tags: [date-grain]
+  expected:
+    entity: production
+    measures: [oil]
+    dimensions: [{field: reading_date, grain: year}]
+
+- id: oil_atyrau
+  question: oil production in Atyrau
+  tags: [filter]
+  expected:
+    entity: production
+    measures: [oil]
+    filters: [{field: region, op: "=", value: Atyrau}]
+
+- id: oil_two_regions
+  question: oil in Atyrau and Aktobe
+  tags: [filter, in-op]
+  expected:
+    entity: production
+    measures: [oil]
+    filters: [{field: region, op: in, value: [Atyrau, Aktobe]}]
+
+- id: oil_by_field_top
+  question: top 5 fields by oil production
+  tags: [ordering, limit]
+  expected:
+    entity: production
+    measures: [oil]
+    dimensions: [{field: field_name}]
+    order_by: [{field: oil, dir: desc}]
+    limit: 5
+
+- id: gas_daily_2026
+  question: daily gas readings for 2026
+  tags: [date-grain, filter]
+  expected:
+    entity: production
+    measures: [gas]
+    dimensions: [{field: reading_date, grain: day}]
+    filters: [{field: reading_date, op: in_year, value: 2026}]
+
+- id: downtime_trend
+  question: downtime trend over time by month
+  tags: [date-grain, chart-hint]
+  expected:
+    entity: production
+    measures: [downtime]
+    dimensions: [{field: reading_date, grain: month}]
+
+- id: water_by_region_and_type
+  question: water by region and well type
+  tags: [two-dim, nominal]
+  expected:
+    entity: production
+    measures: [water]
+    dimensions: [{field: region}, {field: well_type}]
+
+- id: producers_only
+  question: oil from producer wells only
+  tags: [filter]
+  expected:
+    entity: production
+    measures: [oil]
+    filters: [{field: well_type, op: "=", value: PRODUCER}]
+
+- id: oil_between_dates
+  question: oil production between 2025-01-01 and 2025-12-31
+  tags: [between]
+  expected:
+    entity: production
+    measures: [oil]
+    filters: [{field: reading_date, op: between, value: ["2025-01-01", "2025-12-31"]}]
+
+- id: gas_by_region_2026
+  question: gas by region for 2026
+  tags: [nominal, filter]
+  expected:
+    entity: production
+    measures: [gas]
+    dimensions: [{field: region}]
+    filters: [{field: reading_date, op: in_year, value: 2026}]
+
+- id: all_three_streams
+  question: oil, gas and water by month
+  tags: [multi-measure]
+  expected:
+    entity: production
+    measures: [oil, gas, water]
+    dimensions: [{field: reading_date, grain: month}]
+
+- id: oil_by_well
+  question: oil by well
+  tags: [nominal]
+  expected:
+    entity: production
+    measures: [oil]
+    dimensions: [{field: well_name}]
+
+- id: downtime_last_30
+  question: downtime in the last 30 days by region
+  tags: [relative-date, nominal]
+  expected:
+    entity: production
+    measures: [downtime]
+    dimensions: [{field: region}]
+    filters: [{field: reading_date, op: last_n_days, value: 30}]
+
+# -- questions that must be refused ------------------------------------
+
+- id: unverified_entity
+  question: how many interventions were completed in 2026?
+  tags: [refusal, confidence-gate]
+  expect: refused
+  because: well_interventions carries an unverified status field
+
+- id: intervention_gain
+  question: net gain by intervention type
+  tags: [refusal, confidence-gate]
+  expect: refused
+  because: same entity, still gated
+
+- id: no_such_measure
+  question: what was our revenue last quarter?
+  tags: [refusal, out-of-layer]
+  expect: refused
+  because: revenue is not modelled anywhere in the layer
+
+- id: cohort_analysis
+  question: show me a cohort retention curve for wells by spud year
+  tags: [refusal, out-of-grammar]
+  expect: refused
+  because: cohort analysis is outside the grammar entirely
+
+- id: ratio_across_grains
+  question: oil this month as a percentage of last month
+  tags: [refusal, out-of-grammar]
+  expect: refused
+  because: cross-grain ratios are deliberately not expressible
+
+- id: three_dimensions
+  question: oil by month, region and well type
+  tags: [refusal, out-of-grammar]
+  expect: refused
+  because: the grammar caps dimensions at two

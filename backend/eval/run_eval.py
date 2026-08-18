@@ -1,0 +1,211 @@
+"""Run the eval and emit the results table.
+
+Three metrics for the semantic arm, one for the baseline:
+
+  exact       canonical() dicts equal
+  relaxed     equal ignoring the order of measures, dimensions and filters
+  execution   both queries run, result sets equal as sorted tuples
+
+Execution match is the only metric that compares the two arms fairly:
+comparing SQL strings is meaningless, so both sides are judged on what
+they actually return.
+
+Usage:  python -m eval.run_eval [--models a,b] [--out docs/eval-results.md]
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+import time
+from dataclasses import dataclass, field
+from decimal import Decimal
+from pathlib import Path
+
+import yaml
+
+from app.db import close_pools, open_pools, warehouse_pool
+from app.deps import LAYER, SYNONYMS
+from app.llm.client import AnthropicClient
+from app.llm.query_step import ask
+from app.semantic.compile import compile_query
+from app.semantic.query import SemanticQuery
+
+from .baseline import run_baseline
+
+FIXTURES = Path(__file__).parent / "fixtures.yaml"
+MODELS = ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
+
+
+def normalise(rows) -> list[tuple]:
+    """Result sets compare as sorted tuples of stringified values: column
+    order and row order are not part of being right."""
+    out = []
+    for row in rows or []:
+        vals = [f"{float(v):.4f}" if isinstance(v, (Decimal, float))
+                else ("" if v is None else str(v)) for v in row]
+        out.append(tuple(sorted(vals)))
+    return sorted(out)
+
+
+def execute(q: SemanticQuery) -> list[tuple] | None:
+    try:
+        compiled = compile_query(q, LAYER)
+        with warehouse_pool.connection() as conn, conn.cursor() as cur:
+            cur.execute(compiled.sql, compiled.params)
+            return cur.fetchall()
+    except Exception:                    # noqa: BLE001
+        return None
+
+
+@dataclass
+class Tally:
+    total: int = 0
+    exact: int = 0
+    relaxed: int = 0
+    execution: int = 0
+    refusals_total: int = 0
+    refusals_correct: int = 0
+    clarifies: int = 0
+    retries: int = 0
+    base_execution: int = 0
+    base_errors: dict[str, int] = field(default_factory=dict)
+    failures: list[str] = field(default_factory=list)
+    seconds: float = 0.0
+
+
+def evaluate(model: str, fixtures: list[dict], *, with_baseline: bool) -> Tally:
+    t = Tally()
+    client = AnthropicClient(model)
+    started = time.time()
+
+    for fx in fixtures:
+        question = fx["question"]
+        should_refuse = fx.get("expect") == "refused"
+        outcome = ask(question, LAYER, client, synonyms=SYNONYMS)
+        t.retries += max(0, outcome.attempts - 1)
+
+        if should_refuse:
+            t.refusals_total += 1
+            # A clarifying question is an acceptable way to decline: it
+            # still refuses to draw a confidently wrong chart.
+            if outcome.query is None:
+                t.refusals_correct += 1
+            else:
+                t.failures.append(f"{fx['id']}: answered a question it should "
+                                  f"have declined ({fx.get('because', '')})")
+            continue
+
+        t.total += 1
+        if outcome.clarify:
+            t.clarifies += 1
+            t.failures.append(f"{fx['id']}: asked for clarification")
+            continue
+        if outcome.query is None:
+            t.failures.append(f"{fx['id']}: refused — {outcome.refusal}")
+            continue
+
+        expected = SemanticQuery.model_validate(fx["expected"])
+        got = outcome.query
+
+        if got.canonical() == expected.canonical():
+            t.exact += 1
+        if got.relaxed() == expected.relaxed():
+            t.relaxed += 1
+
+        want_rows = execute(expected)
+        got_rows = execute(got)
+        if want_rows is not None and normalise(want_rows) == normalise(got_rows):
+            t.execution += 1
+        elif got.relaxed() != expected.relaxed():
+            t.failures.append(
+                f"{fx['id']}: got {got.model_dump_json(exclude_defaults=True)}")
+
+        if with_baseline:
+            b = run_baseline(question, model)
+            if b.error_kind:
+                t.base_errors[b.error_kind] = t.base_errors.get(b.error_kind, 0) + 1
+            elif want_rows is not None and normalise(want_rows) == normalise(b.rows):
+                t.base_execution += 1
+
+    t.seconds = time.time() - started
+    return t
+
+
+def pct(n: int, d: int) -> str:
+    return f"{100 * n / d:.0f}%" if d else "—"
+
+
+def report(results: dict[str, Tally], with_baseline: bool) -> str:
+    lines = [
+        "# Eval results",
+        "",
+        f"{next(iter(results.values())).total} answerable questions and "
+        f"{next(iter(results.values())).refusals_total} that must be refused, "
+        "run against the semantic layer.",
+        "",
+        "| Model | Exact | Relaxed | Execution | Correct refusals | Retries |"
+        + (" Raw text-to-SQL |" if with_baseline else ""),
+        "|---|---|---|---|---|---|" + ("---|" if with_baseline else ""),
+    ]
+    for model, t in results.items():
+        row = (f"| `{model}` | {pct(t.exact, t.total)} | {pct(t.relaxed, t.total)} "
+               f"| {pct(t.execution, t.total)} "
+               f"| {pct(t.refusals_correct, t.refusals_total)} | {t.retries} |")
+        if with_baseline:
+            row += f" {pct(t.base_execution, t.total)} |"
+        lines.append(row)
+
+    if with_baseline:
+        lines += ["", "## Where the raw text-to-SQL arm failed", "",
+                  "The grammar makes these impossible rather than unlikely: "
+                  "there is no free-text table slot, and join paths are "
+                  "declared rather than generated.", "",
+                  "| Model | Invalid SQL | Missing table or column | Unreachable |",
+                  "|---|---|---|---|"]
+        for model, t in results.items():
+            e = t.base_errors
+            lines.append(f"| `{model}` | {e.get('invalid_sql', 0)} | "
+                         f"{e.get('missing_object', 0)} | {e.get('unreachable', 0)} |")
+
+    for model, t in results.items():
+        if t.failures:
+            lines += ["", f"## Misses — `{model}`", ""]
+            lines += [f"- {f}" for f in t.failures]
+
+    return "\n".join(lines) + "\n"
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--models", default=",".join(MODELS))
+    ap.add_argument("--out", default="/docs/eval-results.md")
+    ap.add_argument("--no-baseline", action="store_true")
+    ap.add_argument("--limit", type=int, default=0,
+                    help="run only the first N fixtures (for a smoke check)")
+    args = ap.parse_args()
+
+    fixtures = yaml.safe_load(FIXTURES.read_text())
+    if args.limit:
+        fixtures = fixtures[:args.limit]
+
+    open_pools()
+    try:
+        results = {
+            model: evaluate(model, fixtures, with_baseline=not args.no_baseline)
+            for model in args.models.split(",")
+        }
+    finally:
+        close_pools()
+
+    text = report(results, with_baseline=not args.no_baseline)
+    print(text)
+    out = Path(args.out)
+    if out.parent.exists():
+        out.write_text(text)
+        print(f"wrote {out}", file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

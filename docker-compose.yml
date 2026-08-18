@@ -33,6 +33,7 @@ services:
       - ./db:/db
       - ./scripts:/scripts
       - ./frontend:/frontend
+      - ./docs:/docs
     depends_on:
       db:
         condition: service_healthy
