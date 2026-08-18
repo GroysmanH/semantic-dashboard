@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .bootstrap import ensure_seeded
 from .db import close_pools, open_pools
 from .routes import ask, boards, cards
 
@@ -10,6 +11,7 @@ from .routes import ask, boards, cards
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     open_pools()
+    ensure_seeded()
     yield
     close_pools()
 

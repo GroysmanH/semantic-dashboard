@@ -178,9 +178,9 @@ def test_a_model_reported_ambiguity_asks_back(verified):
 
 
 def test_an_unreachable_model_refuses_clearly(verified):
-    client = FakeClient(error=LLMError("could not be reached"))
+    client = FakeClient(error=LLMError("The model service could not be reached."))
     out = ask("oil", verified, client)
-    assert "could not be reached" in out.refusal
+    assert out.refusal == "The model service could not be reached."
 
 
 def test_refinement_sends_the_card_state_not_a_conversation(verified):
@@ -201,3 +201,18 @@ def test_the_layer_prompt_is_identical_across_calls(verified):
     ask("oil", verified, client)
     ask("gas", verified, client)
     assert client.calls[0][0] == client.calls[1][0]
+
+
+@pytest.mark.parametrize("status,fragment", [
+    (401, "credential was rejected"),
+    (404, "not available on this account"),
+    (429, "rate limited"),
+    (503, "unavailable"),
+])
+def test_model_errors_are_written_for_the_person_reading_them(status, fragment):
+    """A raw provider payload in the card is noise to a manager."""
+    from app.llm.client import _explain
+
+    message = _explain(status, "claude-sonnet-5")
+    assert fragment in message
+    assert "{" not in message and "'type'" not in message

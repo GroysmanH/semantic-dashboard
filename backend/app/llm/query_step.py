@@ -108,8 +108,8 @@ def ask(question: str, layer: Layer, client: LLMClient,
         try:
             answer = client.ask(system, prompt, AskResponse)
         except LLMError as exc:
-            return AskOutcome(refusal=f"The model could not be reached: {exc}",
-                              attempts=attempts)
+            # LLMError already carries a sentence for the reader.
+            return AskOutcome(refusal=str(exc), attempts=attempts)
 
         try:
             validate_query(answer.semantic_query, layer)

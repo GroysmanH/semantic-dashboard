@@ -132,3 +132,20 @@ def test_the_restatement_states_meaning_and_not_provenance(lyr):
     assert "rows" not in r.restatement
     assert "data through" not in r.restatement
     assert r.row_count > 0 and r.data_max_ts is not None
+
+
+def test_examples_never_suggest_a_gated_entity(layer):
+    """The empty card's examples are the discoverability mechanism. Offering
+    a question that the confidence gate always refuses teaches the manager
+    that the box is broken."""
+    from app.deps import LAYER, example_questions
+
+    gated = {e.label.lower() for e in LAYER.values() if e.has_low_confidence}
+    assert gated, "this test needs at least one gated entity to be meaningful"
+
+    for question in example_questions():
+        for entity in LAYER.values():
+            if not entity.has_low_confidence:
+                continue
+            for measure in entity.measures.values():
+                assert measure.label not in question, question

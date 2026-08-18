@@ -21,7 +21,22 @@ DEFAULT_MODEL = "claude-sonnet-5"
 
 
 class LLMError(RuntimeError):
-    pass
+    """Carries a sentence a manager can act on. The underlying exception is
+    still chained for the logs -- a raw provider payload in the card is
+    noise to the person reading it."""
+
+
+def _explain(status: int, model: str) -> str:
+    if status in (401, 403):
+        return ("The model credential was rejected. Set a valid "
+                "ANTHROPIC_API_KEY and restart.")
+    if status == 404:
+        return f"The model {model!r} is not available on this account."
+    if status == 429:
+        return "The model is rate limited right now. Try again in a moment."
+    if status >= 500:
+        return "The model service is unavailable. Try again shortly."
+    return f"The model rejected the request (HTTP {status})."
 
 
 class LLMClient(Protocol):
@@ -52,9 +67,10 @@ class AnthropicClient:
                 output_format=schema,
             )
         except anthropic.APIStatusError as exc:
-            raise LLMError(f"{exc.status_code}: {exc.message}") from exc
+            raise LLMError(_explain(exc.status_code, self.model)) from exc
         except anthropic.APIConnectionError as exc:
-            raise LLMError("could not reach the model") from exc
+            raise LLMError("The model service could not be reached. "
+                           "Check the network and try again.") from exc
 
         usage = response.usage
         self.last_usage = {

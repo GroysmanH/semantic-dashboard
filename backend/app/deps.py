@@ -15,6 +15,11 @@ def example_questions(limit: int = 6) -> list[str]:
     mechanism for what vocabulary actually exists."""
     out: list[str] = []
     for entity in LAYER.values():
+        # An entity behind the confidence gate refuses every query, so
+        # offering it as an example teaches the manager that the box does
+        # not work.
+        if entity.has_low_confidence:
+            continue
         measures = list(entity.measures)
         dates = [k for k, d in entity.dimensions.items() if d.type == "date"]
         nominals = [k for k, d in entity.dimensions.items() if d.type != "date"]
