@@ -7,12 +7,12 @@ import { useState } from "react";
 export default function EmptyCard({
   examples,
   busy,
-  error,
+  note,
   onAsk,
 }: {
   examples: string[];
   busy: boolean;
-  error?: string | null;
+  note?: string | null;
   onAsk: (question: string) => void;
 }) {
   const [text, setText] = useState("");
@@ -43,9 +43,9 @@ export default function EmptyCard({
         </button>
       </form>
 
-      {error && <div className="notice broken">{error}</div>}
+      {note && <div className="notice hint">{note}</div>}
 
-      {!error && (
+      {(
         <div className="examples">
           <span className="eyebrow">Try</span>
           {examples.map((q) => (

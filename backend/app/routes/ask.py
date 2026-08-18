@@ -11,12 +11,20 @@ import uuid
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from ..deps import LAYER, example_questions
+from ..deps import LAYER, SYNONYMS, example_questions
+from ..llm.client import AnthropicClient
+from ..llm.query_step import ask as ask_model
 from ..render import render, to_payload
 from ..semantic.query import ChartHint, SemanticQuery
 from ..store import cards as store
 
 router = APIRouter(tags=["query"])
+
+
+class AskIn(BaseModel):
+    question: str
+    card_id: uuid.UUID | None = None
+    model: str | None = None
 
 
 class QueryIn(BaseModel):
@@ -85,3 +93,30 @@ def _save(body: QueryIn, r) -> None:
         cache=r.cache,
         previous=previous,
     )
+
+
+@router.post("/ask")
+def ask(body: AskIn):
+    """Natural language in, a card out -- or one clarifying question, or a
+    refusal naming what is undefined. Never a confidently wrong chart."""
+    card = store.get_card(body.card_id) if body.card_id else None
+    current = (SemanticQuery.model_validate(card["semantic_query"])
+               if card and card.get("semantic_query") else None)
+
+    outcome = ask_model(body.question, LAYER, AnthropicClient(body.model),
+                        synonyms=SYNONYMS, current=current)
+
+    if outcome.refusal:
+        return {"state": "refused", "message": outcome.refusal}
+    if outcome.clarify:
+        return {"state": "clarify", "message": outcome.clarify}
+
+    r = render(outcome.query, LAYER, chart_hint=outcome.chart_hint,
+               title=outcome.title)
+
+    if body.card_id is not None and r.state == "ready":
+        _save(QueryIn(semantic_query=outcome.query, chart_hint=outcome.chart_hint,
+                      title=outcome.title, card_id=body.card_id), r)
+        store.update_card(body.card_id, prompt=body.question)
+
+    return {"state": r.state, **to_payload(r)}

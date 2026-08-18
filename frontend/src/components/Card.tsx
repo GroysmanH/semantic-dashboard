@@ -16,7 +16,7 @@ export default function Card({
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const [askError, setAskError] = useState<string | null>(null);
+  const [askNote, setAskNote] = useState<string | null>(null);
   const render = card.render;
   const state = render?.state ?? card.state;
 
@@ -62,8 +62,23 @@ export default function Card({
           <EmptyCard
             examples={examples}
             busy={busy}
-            error={askError}
-            onAsk={() => setAskError("Natural-language asking is not wired up yet.")}
+            note={askNote}
+            onAsk={async (question) => {
+              setBusy(true);
+              setAskNote(null);
+              try {
+                const result = await api.ask(question, card.id);
+                if (result.state === "clarify" || result.state === "refused") {
+                  setAskNote(result.message);
+                } else {
+                  onChanged();
+                }
+              } catch (e) {
+                setAskNote(e instanceof Error ? e.message : String(e));
+              } finally {
+                setBusy(false);
+              }
+            }}
           />
         )}
 

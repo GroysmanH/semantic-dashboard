@@ -27,6 +27,12 @@ export interface Card {
 
 export interface Board { id: string; title: string; cards: Card[] }
 
+/** Three possible answers, never a confidently wrong chart: a rendered
+ *  card, one clarifying question, or a refusal naming what is undefined. */
+export type AskResult =
+  | { state: "refused" | "clarify"; message: string }
+  | ({ state: "ready" | "broken" } & Render);
+
 export interface LayerField { name: string; label: string; type?: string; agg?: string }
 export interface LayerInfo {
   entities: {
@@ -51,6 +57,11 @@ export const api = {
   refreshCard: (id: string) => request<Card>(`/cards/${id}/refresh`, { method: "POST" }),
   deleteCard: (id: string) => request<void>(`/cards/${id}`, { method: "DELETE" }),
   layer: () => request<LayerInfo>("/layer"),
+  ask: (question: string, cardId: string) =>
+    request<AskResult>("/ask", {
+      method: "POST",
+      body: JSON.stringify({ question, card_id: cardId }),
+    }),
   runQuery: (body: {
     semantic_query: SemanticQuery;
     chart_hint?: string | null;
