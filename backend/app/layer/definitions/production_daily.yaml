@@ -62,7 +62,7 @@ measures:
     description: Total hours a well was not producing.
 
   avg_oil:
-    label: average daily oil
+    label: daily oil per well
     agg: avg
     column: oil_bbl
     description: Mean oil rate per well-day, in barrels.

@@ -57,7 +57,7 @@ measures:
     description: Incremental production in barrels attributed to the intervention.
 
   avg_net_gain:
-    label: average net gain
+    label: net gain per job
     agg: avg
     column: net_gain_bbl
     description: Mean incremental production per job, in barrels.
@@ -69,7 +69,7 @@ measures:
     description: Total intervention spend in USD.
 
   n_jobs:
-    label: number of jobs
+    label: jobs
     agg: count
     column: "*"
     description: Count of intervention jobs.
