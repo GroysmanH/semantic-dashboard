@@ -235,10 +235,23 @@
   question: oil this month as a percentage of last month
   tags: [refusal, out-of-grammar]
   expect: refused
-  because: cross-grain ratios are deliberately not expressible
+  # Still a refusal after the grammar grew, and for a sharper reason than
+  # before. period_change_pct is (current - previous) / previous; this asks
+  # for current / previous, which differs by exactly 100 points. `ratio`
+  # takes a measure as its denominator, not a transformed measure, so the
+  # question has no expression -- and answering it with period_change_pct
+  # would be wrong by a whole turn.
+  because: a ratio to the previous period is not the same as the percent
+           change, and only the latter is expressible
 
 - id: three_dimensions
   question: oil by month, region and well type
-  tags: [refusal, out-of-grammar]
-  expect: refused
-  because: the grammar caps dimensions at two
+  # Was a refusal until the cap moved from two to three. Kept under its
+  # original id so the change is visible in history rather than looking
+  # like a fixture that was always there.
+  tags: [three-dim, facet]
+  expected:
+    entity: production
+    measures: [oil]
+    dimensions: [{field: reading_date, grain: month}, {field: region},
+                 {field: well_type}]

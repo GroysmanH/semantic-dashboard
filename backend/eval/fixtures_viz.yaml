@@ -1,0 +1,324 @@
+# Visualisation and complex-query fixtures.
+#
+# Written BEFORE the chart builder was extended, and deliberately so.
+# `build_spec` is a deterministic function of the compiled query, so an
+# `expected_chart` read off the builder would score 100% on the day it was
+# written and forever after -- it would test that a pure function is pure,
+# which test_chart.py already does for free. Every `expected_chart` below
+# is what the *question deserves*. Where the implementation later disagreed,
+# the disagreement is recorded in docs/eval-results.md rather than quietly
+# edited away here.
+#
+# Schema adds two keys to the ones in fixtures.yaml:
+#   expected_chart          the chart_type build_spec should produce
+#   expected_hint_rejected  true when the model's hint must be overruled
+
+# ---------------------------------------------------------------- charts
+
+- id: pie_oil_by_region
+  question: show oil production by region as a pie chart
+  tags: [viz, pie]
+  expected:
+    entity: production
+    measures: [oil]
+    dimensions: [{field: region}]
+  expected_chart: pie
+
+- id: donut_gas_by_well_type
+  question: gas production split by well type, as a donut
+  tags: [viz, donut]
+  expected:
+    entity: production
+    measures: [gas]
+    dimensions: [{field: well_type}]
+  expected_chart: donut
+
+- id: stacked_oil_month_region
+  question: oil by month and region as a stacked bar chart
+  tags: [viz, stacked, two-dim]
+  expected:
+    entity: production
+    measures: [oil]
+    dimensions: [{field: reading_date, grain: month}, {field: region}]
+  expected_chart: stacked_bar
+
+- id: normalised_share_month_region
+  question: how the regional share of oil changed each month, as 100% stacked bars
+  tags: [viz, normalised, two-dim]
+  expected:
+    entity: production
+    measures: [oil]
+    dimensions: [{field: reading_date, grain: month}, {field: region}]
+  expected_chart: normalised_bar
+
+- id: scatter_oil_vs_gas_by_well
+  question: oil versus gas for each well
+  # 200 wells. No hint: the shape rule alone must choose scatter, because a
+  # grouped bar here is 400 bars and unreadable.
+  tags: [viz, scatter, default-rule]
+  expected:
+    entity: production
+    measures: [oil, gas]
+    dimensions: [{field: well_name}]
+  expected_chart: scatter
+
+- id: grouped_bar_oil_gas_region
+  question: oil and gas by region
+  # The other side of the same threshold: 5 categories, so the grouped bar
+  # is still the right answer and scatter must NOT take over.
+  tags: [viz, multi-measure, default-rule]
+  expected:
+    entity: production
+    measures: [oil, gas]
+    dimensions: [{field: region}]
+  expected_chart: bar
+
+- id: bubble_three_measures
+  question: oil, gas and water by field as a bubble chart
+  tags: [viz, bubble, multi-measure]
+  expected:
+    entity: production
+    measures: [oil, gas, water]
+    dimensions: [{field: field_name}]
+  expected_chart: bubble
+
+- id: pie_rejected_on_avg
+  question: average daily oil per well by region as a pie chart
+  # Means do not sum to a whole, so the angles would be nonsense. This is
+  # the guard a model will trip, because the sentence is perfectly natural.
+  tags: [viz, pie, guard]
+  expected:
+    entity: production
+    measures: [avg_oil]
+    dimensions: [{field: region}]
+  expected_chart: bar
+  expected_hint_rejected: true
+
+- id: pie_other_bucket
+  question: oil production by well in Atyrau as a pie chart
+  # ~40 wells, under the default limit of 100, so the result is complete and
+  # the tail can honestly be collapsed: top 7 plus Other.
+  tags: [viz, pie, other-bucket]
+  expected:
+    entity: production
+    measures: [oil]
+    dimensions: [{field: well_name}]
+    filters: [{field: region, op: "=", value: Atyrau}]
+  expected_chart: pie
+
+- id: pie_truncated_result
+  question: oil by well as a pie chart
+  # 200 wells against a default limit of 100. "Other" would stand for an
+  # unfetched remainder, so the pie is a claim about a whole we do not have.
+  tags: [viz, pie, guard, truncation]
+  expected:
+    entity: production
+    measures: [oil]
+    dimensions: [{field: well_name}]
+  expected_chart: bar
+  expected_hint_rejected: true
+
+# ------------------------------------------------------------ transforms
+
+- id: pct_of_total_by_region
+  question: what percentage of total oil production comes from each region
+  tags: [transform, percent-of-total]
+  expected:
+    entity: production
+    measures: [{name: oil, transform: percent_of_total}]
+    dimensions: [{field: region}]
+  expected_chart: bar
+
+- id: previous_period_gas
+  question: gas production by month with the previous month alongside it
+  tags: [transform, previous-period]
+  expected:
+    entity: production
+    measures: [gas, {name: gas, transform: previous_period}]
+    dimensions: [{field: reading_date, grain: month}]
+  expected_chart: line
+
+- id: period_change_oil
+  question: month-over-month change in oil production
+  # Discrete signed deltas, not a continuous trend: a column chart against a
+  # zero line. A line here implies continuity between points that is not
+  # there, and hides the sign.
+  tags: [transform, period-change]
+  expected:
+    entity: production
+    measures: [{name: oil, transform: period_change}]
+    dimensions: [{field: reading_date, grain: month}]
+  expected_chart: bar
+
+- id: period_change_pct_gas
+  question: percent change in gas month over month, by region
+  tags: [transform, period-change, two-dim]
+  expected:
+    entity: production
+    measures: [{name: gas, transform: period_change_pct}]
+    dimensions: [{field: reading_date, grain: month}, {field: region}]
+  expected_chart: line
+
+- id: cumulative_oil_2026
+  question: running total of oil production through 2026
+  tags: [transform, cumulative]
+  expected:
+    entity: production
+    measures: [{name: oil, transform: cumulative}]
+    dimensions: [{field: reading_date, grain: month}]
+    filters: [{field: reading_date, op: in_year, value: 2026}]
+  expected_chart: area
+
+- id: moving_average_oil
+  question: three month moving average of oil production
+  tags: [transform, moving-average]
+  expected:
+    entity: production
+    measures: [{name: oil, transform: moving_average, window: 3}]
+    dimensions: [{field: reading_date, grain: month}]
+  expected_chart: line
+
+- id: rank_fields_by_oil
+  question: rank the fields by oil production
+  tags: [transform, rank]
+  expected:
+    entity: production
+    measures: [{name: oil, transform: rank}]
+    dimensions: [{field: field_name}]
+  expected_chart: bar
+
+- id: ratio_gas_per_oil
+  question: gas to oil ratio by field
+  # Pure arithmetic, no business convention -- reachable through the open
+  # ratio transform, which is why it is not declared in the layer.
+  tags: [transform, ratio]
+  expected:
+    entity: production
+    measures: [{name: gas, transform: ratio, per: oil}]
+    dimensions: [{field: field_name}]
+  expected_chart: bar
+
+# --------------------------------------------------------------- derived
+
+- id: water_cut_by_region
+  question: water cut by region
+  # The one that must be declared: the industry definition is
+  # water/(oil+water). A model left to compose it will reach for water/oil.
+  tags: [derived, convention]
+  expected:
+    entity: production
+    measures: [water_cut]
+    dimensions: [{field: region}]
+  expected_chart: bar
+
+- id: uptime_by_month
+  question: well uptime by month
+  tags: [derived, convention]
+  expected:
+    entity: production
+    measures: [uptime_pct]
+    dimensions: [{field: reading_date, grain: month}]
+  expected_chart: line
+
+- id: ratio_water_per_oil
+  question: water to oil ratio by region
+  # Deliberately adjacent to water_cut: the two are different numbers, and a
+  # model that conflates them fails here or there.
+  tags: [derived, ratio]
+  expected:
+    entity: production
+    measures: [{name: water, transform: ratio, per: oil}]
+    dimensions: [{field: region}]
+  expected_chart: bar
+
+- id: ratio_gas_per_water
+  question: gas to water ratio by well type
+  tags: [derived, ratio]
+  expected:
+    entity: production
+    measures: [{name: gas, transform: ratio, per: water}]
+    dimensions: [{field: well_type}]
+  expected_chart: bar
+
+# ----------------------------------------------------------------- facet
+
+- id: facet_three_dims
+  question: gas by quarter, region and well type
+  # well_type has 3 distinct values, so faceting stays readable. Phrased
+  # differently from three_dimensions in fixtures.yaml on purpose -- the
+  # same question in two suites would be counted twice.
+  tags: [facet, three-dim]
+  expected:
+    entity: production
+    measures: [gas]
+    dimensions: [{field: reading_date, grain: quarter}, {field: region},
+                 {field: well_type}]
+  expected_chart: faceted_line
+
+- id: facet_nominal_bar
+  question: oil by region and well type, broken out by field
+  tags: [facet, three-dim, nominal]
+  expected:
+    entity: production
+    measures: [oil]
+    dimensions: [{field: region}, {field: well_type}, {field: field_name}]
+  expected_chart: faceted_bar
+
+- id: facet_unplottable_cardinality
+  question: oil by month, region and well
+  # The query is legal and executes. The chart is not: 200 panels is not a
+  # small multiple, it is a denial of service on the reader. The card must
+  # break and name the dimension rather than silently dropping it.
+  tags: [facet, three-dim, guard]
+  expected:
+    entity: production
+    measures: [oil]
+    dimensions: [{field: reading_date, grain: month}, {field: region},
+                 {field: well_name}]
+  expected_chart: unplottable
+
+# ------------------------------------------------------------------- geo
+
+- id: map_wells
+  question: show oil production by well on a map
+  tags: [geo, map]
+  expected:
+    entity: production
+    measures: [oil]
+    dimensions: [{field: well_name}]
+  expected_chart: map
+
+- id: map_rejected_without_geo
+  question: gas by region on a map
+  # Coordinates hang off the well, not the region. A map of five polygons we
+  # have no geometry for is not available, and the bar chart is not a
+  # consolation prize -- at five categories it is the better chart anyway.
+  tags: [geo, map, guard]
+  expected:
+    entity: production
+    measures: [gas]
+    dimensions: [{field: region}]
+  expected_chart: bar
+  expected_hint_rejected: true
+
+# -------------------------------------------------------------- refusals
+
+- id: transform_on_gated_entity
+  question: month over month change in intervention cost
+  expect: refused
+  because: well_interventions carries an unverified status field, and a
+           transform does not launder it
+  tags: [refusal, confidence-gate, transform]
+
+- id: ratio_across_entities
+  question: intervention cost per barrel of oil produced
+  expect: refused
+  because: cost lives on interventions and oil on production; a ratio spans
+           one entity only
+  tags: [refusal, out-of-grammar, ratio]
+
+- id: four_dimensions
+  question: oil by month, region, well type and field
+  expect: refused
+  because: four dimensions has no encoding left after x, y, colour and facet
+  tags: [refusal, out-of-grammar, facet]
