@@ -1,9 +1,13 @@
 import { useState } from "react";
 import type { Provider, Providers } from "../api/client";
 
+/** Named by the model, not the vendor: "DeepSeek" is what someone asked
+ *  for, even though the key and the hosting are NVIDIA's. */
 const PROVIDER_LABEL: Record<Provider, string> = {
   anthropic: "Claude",
   gemini: "Gemini",
+  openai: "GPT",
+  nvidia: "DeepSeek",
 };
 
 /** A real persisted row, not a placeholder: a manager sketching a layout

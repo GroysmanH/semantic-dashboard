@@ -33,7 +33,23 @@ def _gemini_models() -> list[str]:
     )
 
 
-LISTERS = {"anthropic": _anthropic_models, "gemini": _gemini_models}
+def _openai_models() -> list[str]:
+    import openai
+
+    return sorted(m.id for m in openai.OpenAI(
+        api_key=settings.openai_api_key or None).models.list())
+
+
+def _nvidia_models() -> list[str]:
+    import openai
+
+    return sorted(m.id for m in openai.OpenAI(
+        api_key=settings.nvidia_api_key or None,
+        base_url="https://integrate.api.nvidia.com/v1").models.list())
+
+
+LISTERS = {"anthropic": _anthropic_models, "gemini": _gemini_models,
+           "openai": _openai_models, "nvidia": _nvidia_models}
 
 
 def _same(listed: str, configured: str) -> bool:
@@ -53,6 +69,10 @@ def models(providers: list[str]) -> int:
         except Exception as exc:                    # noqa: BLE001
             print(f"   could not list models: {exc}")
             continue
+        # NVIDIA lists hundreds of hosted models; only the family in play
+        # is useful to read.
+        if provider == "nvidia":
+            available = [m for m in available if "deepseek" in m.lower()] or available
         for m in available:
             mark = (" <- default" if _same(m, cheap)
                     else " <- hard" if _same(m, strong) else "")

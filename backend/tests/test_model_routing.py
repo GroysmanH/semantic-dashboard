@@ -79,5 +79,5 @@ def test_the_hard_flag_selects_the_model(monkeypatch, provider, hard, expected):
 def test_the_request_cannot_name_a_model_even_via_the_provider_field():
     """`provider` is a choice of who pays, not how much. An unknown value
     is rejected outright rather than falling back to the expensive one."""
-    r = TestClient(app).post("/ask", json={"question": "oil", "provider": "openai"})
+    r = TestClient(app).post("/ask", json={"question": "oil", "provider": "mistral"})
     assert r.status_code == 422

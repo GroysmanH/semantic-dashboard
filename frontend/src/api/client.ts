@@ -34,7 +34,7 @@ export type AskResult = { model?: string; provider?: Provider } & (
   | ({ state: "ready" | "broken" } & Render)
 );
 
-export type Provider = "anthropic" | "gemini";
+export type Provider = "anthropic" | "gemini" | "openai" | "nvidia";
 
 /** Only providers with a key configured; the selector offers no more than
  *  what can actually answer. */

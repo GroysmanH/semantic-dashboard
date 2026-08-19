@@ -15,7 +15,9 @@ is comparing the models and not two different amounts of leniency.
 
 from __future__ import annotations
 
-from typing import Protocol, TypeVar
+import json
+import re
+from typing import Any, Protocol, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
@@ -25,6 +27,41 @@ T = TypeVar("T", bound=BaseModel)
 
 DEFAULT_MODEL = "claude-haiku-4-5"
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
+
+# Reasoning models on OpenAI-compatible endpoints often narrate before they
+# answer, and some return that narration inside the content rather than in a
+# separate field. The JSON is what we want; the thinking is not ours to read.
+_THINK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+_FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
+
+
+def _extract_json(text: str) -> str:
+    """The JSON object in a response that may be wrapped in narration.
+
+    A strict endpoint returns bare JSON and this is a no-op. A lenient one
+    may prepend a <think> block or wrap the answer in a code fence, and
+    handing that to Pydantic would report a grammar failure for what is
+    really a formatting one -- then burn a retry on it.
+    """
+    text = _FENCE.sub("", _THINK.sub("", text)).strip()
+    if text.startswith("{"):
+        return text
+    start, depth, in_str, esc = text.find("{"), 0, False, False
+    if start < 0:
+        return text
+    for i in range(start, len(text)):
+        ch = text[i]
+        if esc:
+            esc = False
+        elif ch == "\\":
+            esc = True
+        elif ch == '"':
+            in_str = not in_str
+        elif not in_str:
+            depth += 1 if ch == "{" else -1 if ch == "}" else 0
+            if depth == 0:
+                return text[start:i + 1]
+    return text[start:]
 
 
 class LLMSchemaError(RuntimeError):
@@ -238,9 +275,152 @@ class GeminiClient:
             raise LLMSchemaError(_schema_reason(exc)) from exc
 
 
+class _OpenAICompatible:
+    """Any endpoint speaking the OpenAI chat protocol.
+
+    Two live here because two exist: OpenAI itself, and NVIDIA NIM, which
+    hosts DeepSeek behind the same wire format. The difference between them
+    is a base URL, a key, and how much structure the server will enforce --
+    which is what `structured` selects:
+
+      parse        the SDK's strict schema mode; the server rejects a
+                   response that does not fit
+      json_object  the server only promises valid JSON, and the schema
+                   travels in the prompt
+
+    Either way the answer is re-validated here against the original model,
+    so `extra="forbid"` and every declared bound stay load-bearing and a
+    miss lands on the same retryable footing it has on the other providers.
+    That matters for more than tidiness: it is what keeps an eval across
+    four vendors a comparison of models rather than of four different
+    amounts of leniency.
+    """
+
+    provider: Provider
+    key_var: str
+    base_url: str | None = None
+    structured: str = "parse"
+    default_model: str = ""
+
+    def __init__(self, model: str | None = None, max_tokens: int = 4096) -> None:
+        self.model = model or self.default_model
+        self.max_tokens = max_tokens
+        self.last_usage: dict[str, int] = {}
+        self._sdk = None
+
+    def _api_key(self) -> str:
+        return getattr(settings, self.key_var.lower(), "")
+
+    def _client(self):
+        if self._sdk is None:
+            import openai
+            try:
+                self._sdk = openai.OpenAI(api_key=self._api_key() or None,
+                                          base_url=self.base_url)
+            except Exception as exc:                # noqa: BLE001
+                raise LLMError(f"No {self.provider} credential is configured. "
+                               f"Put {self.key_var} in .env and restart.") from exc
+        return self._sdk
+
+    def _messages(self, system: str, user: str, schema: type[T]) -> list[dict]:
+        if self.structured == "parse":
+            return [{"role": "system", "content": system},
+                    {"role": "user", "content": user}]
+        # Without server-side enforcement the schema has to travel in the
+        # prompt. Worth naming: this provider is being asked a slightly
+        # different question from the others, and the eval should read its
+        # numbers with that in mind.
+        return [
+            {"role": "system", "content":
+                f"{system}\n\nReply with a single JSON object and nothing "
+                f"else -- no prose, no code fence. It must match this JSON "
+                f"Schema exactly, with no additional properties:\n"
+                f"{json.dumps(schema.model_json_schema(), sort_keys=True)}"},
+            {"role": "user", "content": user},
+        ]
+
+    def ask(self, system: str, user: str, schema: type[T]) -> T:
+        import openai
+
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "messages": self._messages(system, user, schema),
+            "max_completion_tokens": self.max_tokens,
+        }
+        try:
+            if self.structured == "parse":
+                response = self._client().chat.completions.parse(
+                    response_format=schema, **kwargs)
+            else:
+                response = self._client().chat.completions.create(
+                    response_format={"type": "json_object"}, **kwargs)
+        except openai.LengthFinishReasonError as exc:
+            raise LLMError("The answer was cut off before it was complete. "
+                           "Try a shorter question.") from exc
+        except openai.APIStatusError as exc:
+            raise _error_for(exc.status_code, self.model, self.key_var) from exc
+        except openai.APIConnectionError as exc:
+            raise LLMError("The model service could not be reached. "
+                           "Check the network and try again.") from exc
+
+        usage = response.usage
+        cached = getattr(getattr(usage, "prompt_tokens_details", None),
+                         "cached_tokens", 0) or 0
+        self.last_usage = {
+            "input_tokens": (usage.prompt_tokens if usage else 0) or 0,
+            "output_tokens": (usage.completion_tokens if usage else 0) or 0,
+            "cache_read_input_tokens": cached,
+            "cache_creation_input_tokens": 0,
+        }
+
+        message = response.choices[0].message
+        parsed = getattr(message, "parsed", None)
+        if parsed is not None:
+            return parsed
+
+        text = _extract_json(message.content or "")
+        if not text:
+            raise LLMError(f"model returned no structured output "
+                           f"(finish_reason={response.choices[0].finish_reason})")
+        try:
+            return schema.model_validate_json(text)
+        except ValidationError as exc:
+            raise LLMSchemaError(_schema_reason(exc)) from exc
+
+
+class OpenAIClient(_OpenAICompatible):
+    provider: Provider = "openai"
+    key_var = "OPENAI_API_KEY"
+    structured = "parse"
+
+    @property
+    def default_model(self) -> str:
+        return settings.openai_model
+
+
+class NvidiaClient(_OpenAICompatible):
+    """DeepSeek and friends, hosted by NVIDIA behind the OpenAI protocol.
+
+    `json_object` rather than strict parsing: NIM's schema enforcement
+    varies by model, and a provider that 400s on an unsupported keyword is
+    worse than one that returns JSON we check ourselves.
+    """
+
+    provider: Provider = "nvidia"
+    key_var = "NVIDIA_API_KEY"
+    base_url = "https://integrate.api.nvidia.com/v1"
+    structured = "json_object"
+
+    @property
+    def default_model(self) -> str:
+        return settings.nvidia_model
+
+
 CLIENTS: dict[Provider, type] = {
     "anthropic": AnthropicClient,
     "gemini": GeminiClient,
+    "openai": OpenAIClient,
+    "nvidia": NvidiaClient,
 }
 
 
@@ -275,5 +455,7 @@ def configured_providers() -> list[Provider]:
         "anthropic": settings.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY"),
         "gemini": (settings.google_api_key or os.getenv("GOOGLE_API_KEY")
                    or os.getenv("GEMINI_API_KEY")),
+        "openai": settings.openai_api_key or os.getenv("OPENAI_API_KEY"),
+        "nvidia": settings.nvidia_api_key or os.getenv("NVIDIA_API_KEY"),
     }
     return [p for p in CLIENTS if present.get(p)]

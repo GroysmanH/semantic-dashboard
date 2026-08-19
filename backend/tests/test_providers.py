@@ -18,6 +18,9 @@ from app.llm.client import (
     GeminiClient,
     LLMError,
     LLMSchemaError,
+    NvidiaClient,
+    OpenAIClient,
+    _extract_json,
     configured_providers,
     make_client,
 )
@@ -56,17 +59,18 @@ def gemini_returning(text):
 
 # -- the registry ---------------------------------------------------------
 
-def test_both_providers_are_registered():
-    assert set(CLIENTS) == {"anthropic", "gemini"}
+def test_every_provider_is_registered():
+    assert set(CLIENTS) == {"anthropic", "gemini", "openai", "nvidia"}
 
 
 def test_an_unknown_provider_is_refused_by_name():
     with pytest.raises(LLMError, match="Unknown model provider"):
-        make_client("openai")
+        make_client("mistral")
 
 
 @pytest.mark.parametrize("provider,cls", [
-    ("anthropic", AnthropicClient), ("gemini", GeminiClient)])
+    ("anthropic", AnthropicClient), ("gemini", GeminiClient),
+    ("openai", OpenAIClient), ("nvidia", NvidiaClient)])
 def test_the_factory_returns_the_right_client(provider, cls):
     client = make_client(provider)
     assert isinstance(client, cls)
@@ -78,6 +82,10 @@ def test_the_factory_returns_the_right_client(provider, cls):
     ("anthropic", True, "claude-sonnet-5"),
     ("gemini", False, "gemini-3.5-flash"),
     ("gemini", True, "gemini-3.6-flash"),
+    ("openai", False, "gpt-5-mini"),
+    ("openai", True, "gpt-5"),
+    ("nvidia", False, "deepseek-ai/deepseek-v3.1"),
+    ("nvidia", True, "deepseek-ai/deepseek-r1"),
 ])
 def test_hard_escalates_within_the_chosen_provider(provider, hard, expected):
     """Switching provider must not re-price what `hard` means: each side
@@ -92,19 +100,24 @@ def test_no_provider_named_falls_back_to_the_configured_default():
 def test_building_a_client_never_needs_a_credential():
     """The SDK is built on first ask, so a process that never calls the
     model -- the whole test suite, for one -- needs no keys."""
-    assert GeminiClient()._sdk is None
-    assert AnthropicClient()._sdk is None
+    for cls in CLIENTS.values():
+        assert cls()._sdk is None
 
 
 def test_only_providers_with_a_key_are_offered(monkeypatch):
+    for attr in ("anthropic_api_key", "google_api_key", "openai_api_key",
+                 "nvidia_api_key"):
+        monkeypatch.setattr(settings, attr, "")
+    for var in ("ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "GEMINI_API_KEY",
+                "OPENAI_API_KEY", "NVIDIA_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
+    assert configured_providers() == []
+
     monkeypatch.setattr(settings, "anthropic_api_key", "sk-ant-x")
-    monkeypatch.setattr(settings, "google_api_key", "")
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     assert configured_providers() == ["anthropic"]
 
-    monkeypatch.setattr(settings, "google_api_key", "AIza-x")
-    assert configured_providers() == ["anthropic", "gemini"]
+    monkeypatch.setattr(settings, "nvidia_api_key", "nvapi-x")
+    assert configured_providers() == ["anthropic", "nvidia"]
 
 
 # -- the eval defaults to the one that can finish -------------------------

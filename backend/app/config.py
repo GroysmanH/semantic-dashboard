@@ -3,7 +3,7 @@ from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-Provider = Literal["anthropic", "gemini"]
+Provider = Literal["anthropic", "gemini", "openai", "nvidia"]
 
 
 class Settings(BaseSettings):
@@ -17,6 +17,10 @@ class Settings(BaseSettings):
 
     anthropic_api_key: str = ""
     google_api_key: str = ""
+    openai_api_key: str = ""
+    # NVIDIA NIM hosts DeepSeek behind the OpenAI wire protocol, so the key
+    # is NVIDIA's (nvapi-...) even though the model is DeepSeek's.
+    nvidia_api_key: str = ""
 
     # Which API answers a question by default. Both sides are held to the
     # same contract -- structured output validated against the same Pydantic
@@ -36,6 +40,10 @@ class Settings(BaseSettings):
     # to spend novelty. `make models` re-checks both against your key.
     gemini_model: str = "gemini-3.5-flash"
     gemini_model_strong: str = "gemini-3.6-flash"
+    openai_model: str = "gpt-5-mini"
+    openai_model_strong: str = "gpt-5"
+    nvidia_model: str = "deepseek-ai/deepseek-v3.1"
+    nvidia_model_strong: str = "deepseek-ai/deepseek-r1"
 
     # This was gemini, on the reasoning that a 360-call sweep should not
     # bill. It does not survive contact with the actual quota: Google AI
@@ -50,10 +58,16 @@ class Settings(BaseSettings):
     max_rows: int = 10_000
 
     def models(self, provider: Provider) -> tuple[str, str]:
-        """(default, strong) model ids for a provider."""
-        if provider == "gemini":
-            return self.gemini_model, self.gemini_model_strong
-        return self.llm_model, self.llm_model_strong
+        """(default, strong) model ids for a provider.
+
+        anthropic keeps the unprefixed names because it predates the others
+        and they are already in people's .env files; renaming them would
+        break every existing setup to buy symmetry.
+        """
+        if provider == "anthropic":
+            return self.llm_model, self.llm_model_strong
+        return (getattr(self, f"{provider}_model"),
+                getattr(self, f"{provider}_model_strong"))
 
 
 settings = Settings()
