@@ -244,6 +244,22 @@ details.sql pre {
 }
 .ask input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
 
+/* Escalation is a deliberate act, so it reads as a quiet aside rather than
+   a default anyone clicks past. */
+.harder {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--ink-faint);
+  cursor: pointer;
+  user-select: none;
+}
+.harder:hover { color: var(--ink-soft); }
+.harder input { accent-color: var(--accent); margin: 0; }
+.harder:has(input:checked) { color: var(--signal); }
+
 .examples { display: flex; flex-direction: column; gap: 0.3rem; }
 .examples button {
   text-align: left;

@@ -63,11 +63,11 @@ export default function Card({
             examples={examples}
             busy={busy}
             note={askNote}
-            onAsk={async (question) => {
+            onAsk={async (question, hard) => {
               setBusy(true);
               setAskNote(null);
               try {
-                const result = await api.ask(question, card.id);
+                const result = await api.ask(question, card.id, hard);
                 if (result.state === "clarify" || result.state === "refused") {
                   setAskNote(result.message);
                 } else {

@@ -249,3 +249,22 @@ def test_a_schema_failure_then_a_good_answer_succeeds(verified):
     out = ask("oil by lots of things", verified, client)
     assert out.query is not None
     assert "at most 2 items" in client.calls[1]     # the reason was fed back
+
+
+def test_code_vocabularies_are_declared_but_names_are_not(layer):
+    """Where the line sits, made explicit so a later change cannot quietly
+    cross it: a closed set of codes (PRODUCER, COMPLETED, FRAC) is schema and
+    belongs in the layer. The names of real wells, fields and regions are
+    data -- they reveal where a company operates -- and declaring them would
+    put warehouse values in every prompt."""
+    NAME_DIMENSIONS = {"region", "field_name", "well_name", "contractor"}
+
+    for entity in layer.values():
+        for name, dim in entity.dimensions.items():
+            if name in NAME_DIMENSIONS:
+                assert dim.values is None, (
+                    f"{entity.name}.{name} declares values; those are the names "
+                    f"of real things and would reach the model")
+
+    well_type = layer["production"].dimensions["well_type"]
+    assert well_type.values == ["PRODUCER", "INJECTOR", "OBSERVATION"]

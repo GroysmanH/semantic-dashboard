@@ -113,7 +113,7 @@
     filters: [{field: region, op: "=", value: Atyrau}]
 
 - id: oil_two_regions
-  question: oil in Atyrau and Aktobe
+  question: combined total oil across Atyrau and Aktobe, not split by region
   tags: [filter, in-op]
   expected:
     entity: production

@@ -11,6 +11,7 @@ import uuid
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from ..config import settings
 from ..deps import LAYER, SYNONYMS, example_questions
 from ..llm.client import AnthropicClient
 from ..llm.query_step import ask as ask_model
@@ -24,7 +25,10 @@ router = APIRouter(tags=["query"])
 class AskIn(BaseModel):
     question: str
     card_id: uuid.UUID | None = None
-    model: str | None = None
+    # The asker says the question is hard; the server decides what that
+    # costs. Exposing a model id here would let any caller spend the
+    # expensive one, and would ask a manager to reason about model names.
+    hard: bool = False
 
 
 class QueryIn(BaseModel):
@@ -103,13 +107,14 @@ def ask(body: AskIn):
     current = (SemanticQuery.model_validate(card["semantic_query"])
                if card and card.get("semantic_query") else None)
 
-    outcome = ask_model(body.question, LAYER, AnthropicClient(body.model),
+    model = settings.llm_model_strong if body.hard else settings.llm_model
+    outcome = ask_model(body.question, LAYER, AnthropicClient(model),
                         synonyms=SYNONYMS, current=current)
 
     if outcome.refusal:
-        return {"state": "refused", "message": outcome.refusal}
+        return {"state": "refused", "message": outcome.refusal, "model": model}
     if outcome.clarify:
-        return {"state": "clarify", "message": outcome.clarify}
+        return {"state": "clarify", "message": outcome.clarify, "model": model}
 
     r = render(outcome.query, LAYER, chart_hint=outcome.chart_hint,
                title=outcome.title)
@@ -119,4 +124,4 @@ def ask(body: AskIn):
                       title=outcome.title, card_id=body.card_id), r)
         store.update_card(body.card_id, prompt=body.question)
 
-    return {"state": r.state, **to_payload(r)}
+    return {"state": r.state, "model": model, **to_payload(r)}

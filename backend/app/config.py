@@ -13,7 +13,10 @@ class Settings(BaseSettings):
     admin_url: str = "postgresql://postgres:postgres@localhost:5433/semantic"
 
     anthropic_api_key: str = ""
-    llm_model: str = "claude-sonnet-5"
+    # Haiku answers almost everything in this grammar. Sonnet is reserved
+    # for questions the asker marks as hard -- see routes/ask.py.
+    llm_model: str = "claude-haiku-4-5"
+    llm_model_strong: str = "claude-sonnet-5"
 
     layer_dir: Path = Path(__file__).parent / "layer" / "definitions"
     default_ttl_seconds: int = 900

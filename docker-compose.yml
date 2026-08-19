@@ -28,7 +28,6 @@ services:
       WAREHOUSE_URL: postgresql://warehouse_ro:${WAREHOUSE_PASSWORD:-warehouse}@db:5432/semantic
       APP_URL: postgresql://app_rw:${APP_PASSWORD:-appsecret}@db:5432/semantic
       ADMIN_URL: postgresql://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/semantic
-      LLM_MODEL: ${LLM_MODEL:-claude-sonnet-5}
     ports:
       - "8000:8000"
     volumes:

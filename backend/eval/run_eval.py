@@ -99,13 +99,17 @@ class Tally:
     exact: int = 0
     relaxed: int = 0
     execution: int = 0
+    exec_comparable: int = 0
+    exec_skipped: int = 0
     refusals_total: int = 0
     refusals_correct: int = 0
     clarifies: int = 0
     retries: int = 0
     base_execution: int = 0
+    base_comparable: int = 0
     base_errors: dict[str, int] = field(default_factory=dict)
     failures: list[str] = field(default_factory=list)
+    exec_only_failures: list[str] = field(default_factory=list)
     seconds: float = 0.0
 
 
@@ -151,14 +155,46 @@ def evaluate(model: str, fixtures: list[dict], *, with_baseline: bool) -> Tally:
 
         want_rows = execute(expected)
         got_rows = execute(got)
+
+        # A fixture whose expected result is truncated by a limit with no
+        # ordering has no stable answer to compare against: Postgres returns
+        # an arbitrary hundred rows. Comparing result sets against a
+        # non-deterministic target measures nothing, so those are excluded
+        # from execution scoring for both arms rather than counted as misses.
+        unstable = (want_rows is not None
+                    and len(want_rows) >= expected.limit
+                    and not expected.order_by)
+        if unstable:
+            t.exec_skipped += 1
+            continue
+
+        t.exec_comparable += 1
         if want_rows is not None and normalise(want_rows) == normalise(got_rows):
             t.execution += 1
         elif not matched_relaxed:
             t.failures.append(
                 f"{fx['id']}: got {got.model_dump_json(exclude_defaults=True)}")
+        else:
+            # Matched on everything the fixture specified, yet returned
+            # different rows. This is the interesting failure: an added
+            # order_by changes *which* rows survive the default limit, so
+            # the card shows a different hundred. Reporting relaxed without
+            # this would hide it.
+            t.exec_only_failures.append(
+                f"{fx['id']}: same intent, {len(want_rows or [])} vs "
+                f"{len(got_rows or [])} rows — "
+                f"{got.model_dump_json(exclude_defaults=True)}")
 
         if with_baseline:
+            # A fixture whose result is truncated by a limit nobody asked for
+            # cannot be compared fairly: the semantic arm stops at its default
+            # 100 rows, the raw SQL has no LIMIT at all, and the two sets
+            # differ for that reason alone. Scoring that against the baseline
+            # would flatter the semantic arm for free.
+            # Unstable fixtures already `continue`d above, so both arms are
+            # scored over exactly the same comparable set.
             b = run_baseline(question, model)
+            t.base_comparable += 1
             if b.error_kind:
                 t.base_errors[b.error_kind] = t.base_errors.get(b.error_kind, 0) + 1
             elif want_rows is not None and normalise(want_rows) == normalise(b.rows):
@@ -180,6 +216,14 @@ def report(results: dict[str, Tally], with_baseline: bool) -> str:
         f"{next(iter(results.values())).refusals_total} that must be refused, "
         "run against the semantic layer.",
         "",
+        (lambda n: f"Execution is scored over "
+                   f"{next(iter(results.values())).exec_comparable} of them: "
+                   f"{n} {'is' if n == 1 else 'are'} excluded because the "
+                   "expected query is truncated by a limit with no ordering, so "
+                   "Postgres returns an arbitrary hundred rows and there is no "
+                   "stable answer to compare against."
+         )(next(iter(results.values())).exec_skipped),
+        "",
         "Exact is byte-identical intent. Relaxed ignores list order and any "
         "field the fixture left at its default. Execution compares the result "
         "sets the two queries actually return, and is the only metric that "
@@ -191,17 +235,17 @@ def report(results: dict[str, Tally], with_baseline: bool) -> str:
     ]
     for model, t in results.items():
         row = (f"| `{model}` | {pct(t.exact, t.total)} | {pct(t.relaxed, t.total)} "
-               f"| {pct(t.execution, t.total)} "
+               f"| {pct(t.execution, t.exec_comparable)} "
                f"| {pct(t.refusals_correct, t.refusals_total)} | {t.retries} |")
         if with_baseline:
-            row += f" {pct(t.base_execution, t.total)} |"
+            row += f" {pct(t.base_execution, t.base_comparable)} |"
         lines.append(row)
 
     if with_baseline:
-        lines += ["", "## Where the raw text-to-SQL arm failed", "",
-                  "The grammar makes these impossible rather than unlikely: "
-                  "there is no free-text table slot, and join paths are "
-                  "declared rather than generated.", "",
+        lines += ["", "## Structural errors in the raw text-to-SQL arm", "",
+                  f"Scored over the same "
+                  f"{next(iter(results.values())).base_comparable} comparable "
+                  "questions.", "",
                   "| Model | Invalid SQL | Missing table or column | Unreachable |",
                   "|---|---|---|---|"]
         for model, t in results.items():
@@ -213,6 +257,13 @@ def report(results: dict[str, Tally], with_baseline: bool) -> str:
         if t.failures:
             lines += ["", f"## Misses — `{model}`", ""]
             lines += [f"- {f}" for f in t.failures]
+        if t.exec_only_failures:
+            lines += ["", f"## Right intent, different rows — `{model}`", "",
+                      "The query matched on everything the fixture specified but "
+                      "returned a different result set. An added `order_by` "
+                      "changes which rows survive the default limit, so the card "
+                      "shows a different hundred.", ""]
+            lines += [f"- {f}" for f in t.exec_only_failures]
 
     return "\n".join(lines) + "\n"
 

@@ -17,7 +17,7 @@ from ..config import settings
 
 T = TypeVar("T", bound=BaseModel)
 
-DEFAULT_MODEL = "claude-sonnet-5"
+DEFAULT_MODEL = "claude-haiku-4-5"
 
 
 class LLMSchemaError(RuntimeError):

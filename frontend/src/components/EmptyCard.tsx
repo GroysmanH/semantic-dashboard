@@ -13,13 +13,14 @@ export default function EmptyCard({
   examples: string[];
   busy: boolean;
   note?: string | null;
-  onAsk: (question: string) => void;
+  onAsk: (question: string, hard: boolean) => void;
 }) {
   const [text, setText] = useState("");
+  const [hard, setHard] = useState(false);
 
   const submit = (q: string) => {
     if (!q.trim() || busy) return;
-    onAsk(q.trim());
+    onAsk(q.trim(), hard);
   };
 
   return (
@@ -42,6 +43,16 @@ export default function EmptyCard({
           {busy ? "Asking…" : "Ask"}
         </button>
       </form>
+
+      <label className="harder" title="Costs more. Use it when a question needs care.">
+        <input
+          type="checkbox"
+          checked={hard}
+          onChange={(e) => setHard(e.target.checked)}
+          disabled={busy}
+        />
+        <span>This one is hard — think harder about it</span>
+      </label>
 
       {note && <div className="notice hint">{note}</div>}
 
