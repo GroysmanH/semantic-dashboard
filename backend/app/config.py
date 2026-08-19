@@ -42,8 +42,11 @@ class Settings(BaseSettings):
     gemini_model_strong: str = "gemini-3.6-flash"
     openai_model: str = "gpt-5-mini"
     openai_model_strong: str = "gpt-5"
-    nvidia_model: str = "deepseek-ai/deepseek-v3.1"
-    nvidia_model_strong: str = "deepseek-ai/deepseek-r1"
+    # One model serves both tiers here, because the key only reaches one.
+    # `hard` therefore costs nothing and changes nothing on this provider --
+    # said plainly rather than papered over with a second id that 404s.
+    nvidia_model: str = "deepseek-ai/deepseek-v4-pro"
+    nvidia_model_strong: str = "deepseek-ai/deepseek-v4-pro"
 
     # This was gemini, on the reasoning that a 360-call sweep should not
     # bill. It does not survive contact with the actual quota: Google AI

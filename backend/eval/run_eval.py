@@ -57,7 +57,7 @@ MODELS = {
     "anthropic": ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
     "gemini": ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"],
     "openai": ["gpt-5", "gpt-5-mini", "gpt-5-nano"],
-    "nvidia": ["deepseek-ai/deepseek-r1", "deepseek-ai/deepseek-v3.1"],
+    "nvidia": ["deepseek-ai/deepseek-v4-pro"],
 }
 
 
