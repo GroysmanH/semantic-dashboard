@@ -13,7 +13,12 @@ from pydantic import BaseModel
 
 from ..config import Provider, settings
 from ..deps import LAYER, SYNONYMS, example_questions
-from ..llm.client import LLMError, configured_providers, make_client
+from ..llm.client import (
+    LLMError,
+    LLMRateLimited,
+    configured_providers,
+    make_client,
+)
 from ..llm.query_step import ask as ask_model
 from ..render import render, to_payload
 from ..semantic.query import ChartHint, SemanticQuery
@@ -121,8 +126,13 @@ def ask(body: AskIn):
         raise HTTPException(400, str(exc)) from exc
     who = {"provider": client.provider, "model": client.model}
 
-    outcome = ask_model(body.question, LAYER, client,
-                        synonyms=SYNONYMS, current=current)
+    try:
+        outcome = ask_model(body.question, LAYER, client,
+                            synonyms=SYNONYMS, current=current)
+    except LLMRateLimited as exc:
+        # A person waiting on a card wants to be told, not held. The eval
+        # makes the other choice and waits.
+        return {"state": "refused", "message": str(exc), **who}
 
     if outcome.refusal:
         return {"state": "refused", "message": outcome.refusal, **who}

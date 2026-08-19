@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.config import Provider
 from app.db import warehouse_pool
-from app.llm.client import LLMError, LLMSchemaError, make_client
+from app.llm.client import LLMError, LLMRateLimited, LLMSchemaError, make_client
 
 SCHEMA_DDL = """\
 CREATE TABLE ddh.dim_wells (
@@ -72,6 +72,8 @@ def run_baseline(question: str, model: str,
         answer = client.ask(SYSTEM, question, SqlAnswer)
     except LLMSchemaError as exc:
         return BaselineResult(error=str(exc), error_kind="refused")
+    except LLMRateLimited:
+        raise                       # the caller waits; see patiently()
     except LLMError as exc:
         return BaselineResult(error=str(exc), error_kind="unreachable")
 

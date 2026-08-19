@@ -84,3 +84,110 @@ def test_refusal_fixtures_are_genuinely_unanswerable(fx, layer):
         return                       # not expressible; nothing to construct
     with pytest.raises((QueryValidationError, ValueError)):
         validate_query(SemanticQuery.model_validate(expected), layer)
+
+
+# -- the visualisation suite ---------------------------------------------
+
+def test_the_viz_suite_is_thirty_fixtures_with_unique_ids():
+    import yaml
+
+    from eval.run_eval import SUITES
+
+    viz = yaml.safe_load(SUITES["viz"].read_text())
+    assert len(viz) == 30
+    assert len({f["id"] for f in viz}) == 30
+
+
+def test_no_question_appears_in_both_suites():
+    """The same question scored twice is the same evidence counted twice."""
+    import yaml
+
+    from eval.run_eval import SUITES
+
+    a = {f["question"] for f in yaml.safe_load(SUITES["queries"].read_text())}
+    b = {f["question"] for f in yaml.safe_load(SUITES["viz"].read_text())}
+    assert not (a & b)
+
+
+def test_every_answerable_viz_fixture_declares_a_chart():
+    """A fixture with no expected_chart contributes nothing to the metric
+    the suite exists for."""
+    import yaml
+
+    from eval.run_eval import SUITES
+
+    for fx in yaml.safe_load(SUITES["viz"].read_text()):
+        if fx.get("expect") == "refused":
+            assert "expected_chart" not in fx
+        else:
+            assert "expected_chart" in fx, fx["id"]
+
+
+def test_every_expected_viz_query_is_valid_and_runs(layer, warehouse_conn):
+    """A fixture the compiler rejects measures the fixture, not the model."""
+    import yaml
+
+    from app.semantic.compile import compile_query
+    from app.semantic.query import SemanticQuery
+    from eval.run_eval import SUITES
+
+    for fx in yaml.safe_load(SUITES["viz"].read_text()):
+        if fx.get("expect") == "refused":
+            continue
+        compiled = compile_query(SemanticQuery.model_validate(fx["expected"]),
+                                 layer)
+        with warehouse_conn.cursor() as cur:
+            cur.execute(compiled.sql, compiled.params)
+            cur.fetchall()
+
+
+def test_the_new_chart_vocabulary_is_covered(layer):
+    """Each type added with this work should be reachable from at least one
+    fixture, or the suite is not exercising what it was written for."""
+    import yaml
+
+    from eval.run_eval import SUITES
+
+    charts = {fx["expected_chart"]
+              for fx in yaml.safe_load(SUITES["viz"].read_text())
+              if "expected_chart" in fx}
+    assert {"pie", "donut", "stacked_bar", "normalised_bar", "scatter",
+            "bubble", "map", "faceted_line", "faceted_bar",
+            "unplottable"} <= charts
+
+
+def test_the_builder_agrees_with_what_each_question_deserves(layer):
+    """The reconciliation, run offline and for free.
+
+    Comparing intent against the builder needs only the *expected* query,
+    so it costs no model call at all -- the model is what the other three
+    metrics measure, not this one.
+
+    On the strength of a clean result: the ordering is verifiable in git
+    (the fixtures were committed before any of the builder existed, so no
+    expectation could have been read off it), but the author is not
+    independent, since the same session wrote both. Treat agreement here as
+    a regression net rather than as outside validation. A disagreement is
+    the interesting event, and it is a finding about the shape rules, not a
+    fixture to quietly correct.
+    """
+    import yaml
+
+    from app.render import render
+    from app.semantic.query import SemanticQuery
+    from eval.run_eval import SUITES
+
+    disagreements = []
+    for fx in yaml.safe_load(SUITES["viz"].read_text()):
+        if fx.get("expect") == "refused":
+            continue
+        drawn = render(SemanticQuery.model_validate(fx["expected"]), layer,
+                       chart_hint=fx.get("hint"))
+        built = drawn.chart_type or "unplottable"
+        if built != fx["expected_chart"]:
+            disagreements.append(
+                f"{fx['id']}: wanted {fx['expected_chart']}, drew {built}")
+        if "expected_hint_rejected" in fx:
+            assert drawn.hint_rejected == fx["expected_hint_rejected"], fx["id"]
+
+    assert not disagreements, "\n".join(disagreements)

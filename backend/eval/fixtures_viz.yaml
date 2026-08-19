@@ -10,6 +10,8 @@
 # edited away here.
 #
 # Schema adds two keys to the ones in fixtures.yaml:
+#   hint                    the chart_hint a correct model would emit here,
+#                           for questions that name a chart shape
 #   expected_chart          the chart_type build_spec should produce
 #   expected_hint_rejected  true when the model's hint must be overruled
 
@@ -22,6 +24,7 @@
     entity: production
     measures: [oil]
     dimensions: [{field: region}]
+  hint: pie
   expected_chart: pie
 
 - id: donut_gas_by_well_type
@@ -31,6 +34,7 @@
     entity: production
     measures: [gas]
     dimensions: [{field: well_type}]
+  hint: donut
   expected_chart: donut
 
 - id: stacked_oil_month_region
@@ -40,6 +44,7 @@
     entity: production
     measures: [oil]
     dimensions: [{field: reading_date, grain: month}, {field: region}]
+  hint: stacked_bar
   expected_chart: stacked_bar
 
 - id: normalised_share_month_region
@@ -49,6 +54,7 @@
     entity: production
     measures: [oil]
     dimensions: [{field: reading_date, grain: month}, {field: region}]
+  hint: normalised_bar
   expected_chart: normalised_bar
 
 - id: scatter_oil_vs_gas_by_well
@@ -80,6 +86,7 @@
     entity: production
     measures: [oil, gas, water]
     dimensions: [{field: field_name}]
+  hint: bubble
   expected_chart: bubble
 
 - id: pie_rejected_on_avg
@@ -91,6 +98,7 @@
     entity: production
     measures: [avg_oil]
     dimensions: [{field: region}]
+  hint: pie
   expected_chart: bar
   expected_hint_rejected: true
 
@@ -104,6 +112,7 @@
     measures: [oil]
     dimensions: [{field: well_name}]
     filters: [{field: region, op: "=", value: Atyrau}]
+  hint: pie
   expected_chart: pie
 
 - id: pie_truncated_result
@@ -115,6 +124,7 @@
     entity: production
     measures: [oil]
     dimensions: [{field: well_name}]
+  hint: pie
   expected_chart: bar
   expected_hint_rejected: true
 
@@ -286,6 +296,7 @@
     entity: production
     measures: [oil]
     dimensions: [{field: well_name}]
+  hint: map
   expected_chart: map
 
 - id: map_rejected_without_geo
@@ -298,6 +309,7 @@
     entity: production
     measures: [gas]
     dimensions: [{field: region}]
+  hint: map
   expected_chart: bar
   expected_hint_rejected: true
 

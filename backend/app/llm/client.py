@@ -40,6 +40,15 @@ class LLMError(RuntimeError):
     noise to the person reading it."""
 
 
+class LLMRateLimited(LLMError):
+    """Terminal for a single request, but not for a batch.
+
+    A card refuses and says to try again; the eval, which is deliberately
+    pointed at a free tier and will meet this constantly, waits instead.
+    Same condition, two right answers, so it needs its own type.
+    """
+
+
 def _schema_reason(exc: ValidationError) -> str:
     """One sentence per violated bound, in the grammar's own terms."""
     parts = []
@@ -47,6 +56,11 @@ def _schema_reason(exc: ValidationError) -> str:
         loc = ".".join(str(p) for p in err["loc"] if not isinstance(p, int))
         parts.append(f"{loc}: {err['msg']}")
     return "; ".join(parts) or "the answer did not fit the query grammar"
+
+
+def _error_for(status: int, model: str, key_var: str) -> LLMError:
+    cls = LLMRateLimited if status == 429 else LLMError
+    return cls(_explain(status, model, key_var))
 
 
 def _explain(status: int, model: str, key_var: str) -> str:
@@ -113,8 +127,7 @@ class AnthropicClient:
         except ValidationError as exc:
             raise LLMSchemaError(_schema_reason(exc)) from exc
         except anthropic.APIStatusError as exc:
-            raise LLMError(_explain(exc.status_code, self.model,
-                                    self.key_var)) from exc
+            raise _error_for(exc.status_code, self.model, self.key_var) from exc
         except anthropic.APIConnectionError as exc:
             raise LLMError("The model service could not be reached. "
                            "Check the network and try again.") from exc
@@ -197,8 +210,7 @@ class GeminiClient:
                 ),
             )
         except errors.APIError as exc:
-            raise LLMError(_explain(exc.code or 500, self.model,
-                                    self.key_var)) from exc
+            raise _error_for(exc.code or 500, self.model, self.key_var) from exc
         except Exception as exc:                    # noqa: BLE001
             raise LLMError("The model service could not be reached. "
                            "Check the network and try again.") from exc

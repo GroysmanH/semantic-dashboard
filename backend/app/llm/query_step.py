@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict
 from ..layer.models import Layer
 from ..semantic.query import ChartHint, SemanticQuery
 from ..semantic.validate import QueryValidationError, validate_query
-from .client import LLMClient, LLMError, LLMSchemaError
+from .client import LLMClient, LLMError, LLMRateLimited, LLMSchemaError
 from .prompt import build_system_prompt
 
 
@@ -114,6 +114,12 @@ def ask(question: str, layer: Layer, client: LLMClient,
             # grammar not holding them is the point.
             last_error = str(exc)
             continue
+        except LLMRateLimited:
+            # Deliberately not turned into a refusal here, and listed before
+            # LLMError because it is a subclass. A card should say "try
+            # again in a moment"; a batch run pointed at a free tier should
+            # wait. Only the caller knows which it is.
+            raise
         except LLMError as exc:
             # Transport and credential failures already carry a sentence for
             # the reader, and no retry will fix them.
