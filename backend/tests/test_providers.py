@@ -107,12 +107,15 @@ def test_only_providers_with_a_key_are_offered(monkeypatch):
     assert configured_providers() == ["anthropic", "gemini"]
 
 
-# -- the eval defaults to the free one ------------------------------------
+# -- the eval defaults to the one that can finish -------------------------
 
-def test_the_eval_defaults_to_the_free_provider():
-    """30 questions x 3 models x 2 arms, every run. That is the one place
-    the default should be the one that does not bill."""
-    assert settings.eval_provider == "gemini"
+def test_the_eval_defaults_to_a_provider_that_can_actually_run_it():
+    """This asserted "gemini" on the reasoning that a 360-call sweep should
+    not bill. The reasoning was fine and the fact was wrong: Google AI
+    Studio's free tier allows 20 requests per DAY per model, so the sweep
+    takes about three weeks there. Haiku runs it for roughly thirty cents.
+    Free is only cheaper when it finishes."""
+    assert settings.eval_provider == "anthropic"
 
 
 # -- Gemini holds the same contract ---------------------------------------

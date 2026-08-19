@@ -37,11 +37,13 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-3.5-flash"
     gemini_model_strong: str = "gemini-3.6-flash"
 
-    # The eval is the one place that spends real money at scale: 30
-    # questions x N models x 2 arms, every time it runs. Google AI Studio's
-    # free tier is worth more there than familiarity, so it is the default
-    # and switching back to Anthropic is an explicit `--provider` away.
-    eval_provider: Provider = "gemini"
+    # This was gemini, on the reasoning that a 360-call sweep should not
+    # bill. It does not survive contact with the actual quota: Google AI
+    # Studio's free tier allows 20 requests per day *per model*, so a full
+    # eval there takes about three weeks. Haiku runs the same sweep for
+    # roughly thirty cents. Gemini stays a `--provider` away for anyone who
+    # has the paid tier.
+    eval_provider: Provider = "anthropic"
 
     layer_dir: Path = Path(__file__).parent / "layer" / "definitions"
     default_ttl_seconds: int = 900

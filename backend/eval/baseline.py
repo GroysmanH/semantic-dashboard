@@ -25,7 +25,8 @@ from app.llm.client import LLMError, LLMRateLimited, LLMSchemaError, make_client
 SCHEMA_DDL = """\
 CREATE TABLE ddh.dim_wells (
     well_id integer PRIMARY KEY, well_name text, region_name text,
-    field_name text, spud_date date, well_type text);
+    field_name text, spud_date date, well_type text,
+    latitude numeric, longitude numeric);
 
 CREATE TABLE ddh.fct_well_interventions (
     intervention_id integer PRIMARY KEY, well_id integer,

@@ -21,13 +21,13 @@ seed:
 test:
 	docker compose exec -T backend pytest -v
 
-# Defaults to Gemini: 30 questions x 3 models x 2 arms is the one thing
-# here that runs often enough for "free" to beat "familiar".
+# Anthropic by default. Gemini's free tier meters at 20 requests per day
+# per model and a full sweep is 360 calls; on Haiku it costs about $0.30.
 eval:
 	docker compose exec -T backend python -m eval.run_eval
 
-eval-anthropic:
-	docker compose exec -T backend python -m eval.run_eval --provider anthropic
+eval-gemini:
+	docker compose exec -T backend python -m eval.run_eval --provider gemini
 
 # Which model ids each configured API will actually accept.
 models:
