@@ -203,17 +203,20 @@ def test_the_layer_prompt_is_identical_across_calls(verified):
     assert client.calls[0][0] == client.calls[1][0]
 
 
+@pytest.mark.parametrize("key_var", ["ANTHROPIC_API_KEY", "GOOGLE_API_KEY"])
 @pytest.mark.parametrize("status,fragment", [
     (401, "credential was rejected"),
     (404, "not available on this account"),
     (429, "rate limited"),
     (503, "unavailable"),
 ])
-def test_model_errors_are_written_for_the_person_reading_them(status, fragment):
-    """A raw provider payload in the card is noise to a manager."""
+def test_model_errors_are_written_for_the_person_reading_them(status, fragment,
+                                                             key_var):
+    """A raw provider payload in the card is noise to a manager. Both
+    providers get the same sentences, naming their own key variable."""
     from app.llm.client import _explain
 
-    message = _explain(status, "claude-sonnet-5")
+    message = _explain(status, "claude-sonnet-5", key_var)
     assert fragment in message
     assert "{" not in message and "'type'" not in message
 
@@ -268,3 +271,17 @@ def test_code_vocabularies_are_declared_but_names_are_not(layer):
 
     well_type = layer["production"].dimensions["well_type"]
     assert well_type.values == ["PRODUCER", "INJECTOR", "OBSERVATION"]
+
+
+def test_prompt_contains_no_geo_columns():
+    """Coordinates are a rendering detail, not vocabulary. If they reached
+    the prompt the model could ask for "oil by latitude", which compiles
+    cleanly, executes cleanly and means nothing -- a wrong chart made
+    entirely of valid fields."""
+    from app.deps import LAYER
+    from app.llm.prompt import build_system_prompt
+
+    prompt = build_system_prompt(LAYER)
+    assert LAYER["production"].geo is not None, "the guard needs something to guard"
+    for leak in ("latitude", "longitude", "wells.latitude", "wells.longitude"):
+        assert leak not in prompt

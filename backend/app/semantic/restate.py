@@ -14,8 +14,8 @@ from datetime import date, datetime
 def dt_parse(v: str) -> datetime:
     return datetime.fromisoformat(v)
 
-from ..layer.models import Entity
-from .query import Filter, SemanticQuery
+from ..layer.models import Derived, Entity
+from .query import Filter, MeasureRef, SemanticQuery
 
 _AGG_PHRASE = {
     "sum": "Sum of {}",
@@ -23,6 +23,20 @@ _AGG_PHRASE = {
     "count": "Count of {}",
     "min": "Minimum {}",
     "max": "Maximum {}",
+}
+
+# Each transform changes what the number *is*, so each needs its own words.
+# A running total described as a sum is a sentence that quietly disagrees
+# with the chart above it.
+_TRANSFORM_PHRASE = {
+    "percent_of_total": "{} as a share of the total",
+    "previous_period": "{}, one period earlier",
+    "period_change": "change in {} against the previous period",
+    "period_change_pct": "percent change in {} against the previous period",
+    "cumulative": "running total of {}",
+    "moving_average": "{}-period moving average of {}",
+    "rank": "{} ranked",
+    "ratio": "{} per {}",
 }
 
 _GRAIN_PHRASE = {
@@ -62,7 +76,7 @@ def _fmt_ts(v) -> str:
 
 
 def _filter_phrase(entity: Entity, f: Filter) -> str:
-    target = entity.dimensions.get(f.field) or entity.measures.get(f.field)
+    target = entity.dimensions.get(f.field) or entity.measure(f.field)
     label = target.label if target else f.field
 
     if f.op == "in_year":
@@ -78,12 +92,30 @@ def _filter_phrase(entity: Entity, f: Filter) -> str:
     return f"{label} {_fmt_value(f.value)}"
 
 
+def _measure_phrase(entity: Entity, ref: MeasureRef) -> str:
+    target = entity.measure(ref.name)
+    label = target.label if target else ref.name
+
+    # A derived measure is already a named quantity -- "water cut", not
+    # "sum of water cut". Only base measures carry an aggregation word.
+    base = (label if isinstance(target, Derived)
+            else _AGG_PHRASE[target.agg].format(label))
+
+    if ref.transform is None:
+        return base
+    if ref.transform == "ratio":
+        other = entity.measure(ref.per)
+        return _TRANSFORM_PHRASE["ratio"].format(
+            base, other.label if other else ref.per)
+    if ref.transform == "moving_average":
+        return _TRANSFORM_PHRASE["moving_average"].format(ref.window, base)
+    return _TRANSFORM_PHRASE[ref.transform].format(base)
+
+
 def restate(q: SemanticQuery, entity: Entity, row_count: int | None = None,
-            data_max_ts: date | datetime | str | None = None) -> str:
-    measures = [
-        _AGG_PHRASE[entity.measures[m].agg].format(entity.measures[m].label)
-        for m in q.measures
-    ]
+            data_max_ts: date | datetime | str | None = None,
+            note: str = "") -> str:
+    measures = [_measure_phrase(entity, m) for m in q.measures]
     sentence = _join(measures)
 
     if q.dimensions:
@@ -103,6 +135,12 @@ def restate(q: SemanticQuery, entity: Entity, row_count: int | None = None,
 
     sentence += f", from {entity.label}"
 
+    # A chart that shows fewer categories than the query returned means
+    # something different from one that shows them all, so the sentence
+    # that states the meaning has to say so.
+    if note:
+        sentence += f" — {note}"
+
     tail = []
     if row_count is not None:
         tail.append(f"{row_count:,} row{'' if row_count == 1 else 's'}")
@@ -111,4 +149,4 @@ def restate(q: SemanticQuery, entity: Entity, row_count: int | None = None,
     if tail:
         sentence += " — " + ", ".join(tail)
 
-    return sentence + "."
+    return sentence[:1].upper() + sentence[1:] + "."

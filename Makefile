@@ -1,4 +1,4 @@
-.PHONY: up down reset logs seed test eval types psql validate-all
+.PHONY: up down reset logs seed test eval eval-anthropic models types psql validate-all
 
 up:
 	docker compose up -d --build
@@ -21,8 +21,17 @@ seed:
 test:
 	docker compose exec -T backend pytest -v
 
+# Defaults to Gemini: 30 questions x 3 models x 2 arms is the one thing
+# here that runs often enough for "free" to beat "familiar".
 eval:
 	docker compose exec -T backend python -m eval.run_eval
+
+eval-anthropic:
+	docker compose exec -T backend python -m eval.run_eval --provider anthropic
+
+# Which model ids each configured API will actually accept.
+models:
+	docker compose exec -T backend python -m app.cli models
 
 types:
 	docker compose exec -T backend python /scripts/gen_types.py

@@ -7,6 +7,7 @@ import pytest
 
 from app.layer.loader import load_layer, synonym_index
 from app.layer.models import LayerError
+from pydantic import ValidationError
 
 MINIMAL = """
 entity: jobs
@@ -168,3 +169,69 @@ def test_and_ed_equijoin_is_accepted(tmp_path):
         "condition: wells.well_id = fct_well_interventions.well_id AND "
         "wells.field_name = fct_well_interventions.contractor")
     load_layer(write(tmp_path, "jobs", body))
+
+
+# -- derived measures and geo (added with the analytical grammar) ---------
+
+def test_a_derived_formula_may_not_name_a_raw_column(layer):
+    """The guard that keeps a ratio of sums from becoming a sum of ratios.
+    Formulas compose measure names, which already carry their aggregation."""
+    from app.layer.models import Entity
+
+    with pytest.raises(ValidationError) as e:
+        Entity.model_validate({
+            "entity": "x", "label": "X", "table": "ddh.t",
+            "dimensions": {"d": {"label": "d", "type": "string"}},
+            "measures": {"oil": {"label": "oil", "agg": "sum", "column": "oil_bbl"}},
+            "derived": {"bad": {"label": "bad", "formula": "oil_bbl / 2"}},
+        })
+    assert "not a base measure" in str(e.value)
+
+
+def test_a_derived_formula_may_not_call_a_function(layer):
+    from app.layer.models import Derived
+
+    with pytest.raises(ValidationError) as e:
+        Derived(label="x", formula="sum(oil) / gas")
+    assert "may not call functions" in str(e.value)
+
+
+def test_derived_measures_may_not_nest(layer):
+    from app.layer.models import Entity
+
+    with pytest.raises(ValidationError) as e:
+        Entity.model_validate({
+            "entity": "x", "label": "X", "table": "ddh.t",
+            "dimensions": {"d": {"label": "d", "type": "string"}},
+            "measures": {"oil": {"label": "oil", "agg": "sum", "column": "oil_bbl"},
+                         "gas": {"label": "gas", "agg": "sum", "column": "gas_mcf"}},
+            "derived": {"a": {"label": "a", "formula": "oil / gas"},
+                        "b": {"label": "b", "formula": "a / gas"}},
+        })
+    assert "formulas compose base measures only" in str(e.value)
+
+
+def test_geo_must_point_at_a_declared_dimension_and_join(layer):
+    from app.layer.models import Entity
+
+    base = {"entity": "x", "label": "X", "table": "ddh.t",
+            "dimensions": {"d": {"label": "d", "type": "string"}},
+            "measures": {"oil": {"label": "oil", "agg": "sum", "column": "oil_bbl"}}}
+
+    with pytest.raises(ValidationError) as e:
+        Entity.model_validate({**base, "geo": {"lat": "lat", "lon": "lon",
+                                               "of": "nope"}})
+    assert "not a dimension" in str(e.value)
+
+    with pytest.raises(ValidationError) as e:
+        Entity.model_validate({**base, "geo": {"lat": "w.latitude",
+                                               "lon": "w.longitude", "of": "d"}})
+    assert "undeclared join alias" in str(e.value)
+
+
+def test_the_production_layer_declares_only_conventions(layer):
+    """Arithmetic belongs in the ratio transform. What earns a declaration
+    is a definition a business has an opinion about -- so this list stays
+    short, and a growing one is a smell rather than progress."""
+    assert set(layer["production"].derived) == {"water_cut", "uptime_pct"}
+    assert layer["production"].geo.of == "well_name"

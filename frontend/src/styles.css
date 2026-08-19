@@ -246,6 +246,31 @@ details.sql pre {
 
 /* Escalation is a deliberate act, so it reads as a quiet aside rather than
    a default anyone clicks past. */
+/* Two APIs, one row. Reads as a setting rather than a feature: the
+   question is what matters, not who answers it. */
+.provider {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.1rem;
+}
+.provider .eyebrow { margin-right: 0.15rem; }
+.provider button {
+  border: 1px solid var(--rule);
+  background: none;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  padding: 0.12rem 0.5rem;
+}
+.provider button:hover:not(:disabled) { color: var(--ink-soft); border-color: var(--ink-faint); }
+.provider button.on {
+  color: var(--signal);
+  border-color: var(--signal);
+  background: none;
+}
+
 .harder {
   display: flex;
   align-items: center;

@@ -10,7 +10,8 @@ Execution match is the only metric that compares the two arms fairly:
 comparing SQL strings is meaningless, so both sides are judged on what
 they actually return.
 
-Usage:  python -m eval.run_eval [--models a,b] [--out docs/eval-results.md]
+Usage:  python -m eval.run_eval [--provider gemini] [--models a,b]
+                               [--out docs/eval-results.md]
 """
 
 from __future__ import annotations
@@ -24,9 +25,10 @@ from pathlib import Path
 
 import yaml
 
+from app.config import settings
 from app.db import close_pools, open_pools, warehouse_pool
 from app.deps import LAYER, SYNONYMS
-from app.llm.client import AnthropicClient
+from app.llm.client import make_client
 from app.llm.query_step import ask
 from app.semantic.compile import compile_query
 from app.semantic.query import SemanticQuery
@@ -34,7 +36,13 @@ from app.semantic.query import SemanticQuery
 from .baseline import run_baseline
 
 FIXTURES = Path(__file__).parent / "fixtures.yaml"
-MODELS = ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
+
+# Three tiers per provider, so the interesting comparison -- does the
+# grammar let a small model do a big model's job? -- is available on both.
+MODELS = {
+    "anthropic": ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"],
+    "gemini": ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.5-flash-lite"],
+}
 
 
 def relaxed_match(got: SemanticQuery, expected: SemanticQuery,
@@ -51,7 +59,13 @@ def relaxed_match(got: SemanticQuery, expected: SemanticQuery,
     """
     if got.entity != expected.entity:
         return False
-    if sorted(got.measures) != sorted(expected.measures):
+    def measures(q):
+        # Objects now, not strings: a transform is part of what the measure
+        # *is*, so two queries naming `oil` differ if one takes a running
+        # total. Sorted by the serialised form so order still does not count.
+        return sorted(m.model_dump_json() for m in q.measures)
+
+    if measures(got) != measures(expected):
         return False
 
     def dims(q):
@@ -113,9 +127,10 @@ class Tally:
     seconds: float = 0.0
 
 
-def evaluate(model: str, fixtures: list[dict], *, with_baseline: bool) -> Tally:
+def evaluate(model: str, fixtures: list[dict], *, with_baseline: bool,
+             provider: str) -> Tally:
     t = Tally()
-    client = AnthropicClient(model)
+    client = make_client(provider, model=model)
     started = time.time()
 
     for fx in fixtures:
@@ -193,7 +208,7 @@ def evaluate(model: str, fixtures: list[dict], *, with_baseline: bool) -> Tally:
             # would flatter the semantic arm for free.
             # Unstable fixtures already `continue`d above, so both arms are
             # scored over exactly the same comparable set.
-            b = run_baseline(question, model)
+            b = run_baseline(question, model, provider)
             t.base_comparable += 1
             if b.error_kind:
                 t.base_errors[b.error_kind] = t.base_errors.get(b.error_kind, 0) + 1
@@ -208,9 +223,12 @@ def pct(n: int, d: int) -> str:
     return f"{100 * n / d:.0f}%" if d else "—"
 
 
-def report(results: dict[str, Tally], with_baseline: bool) -> str:
+def report(results: dict[str, Tally], with_baseline: bool,
+           provider: str) -> str:
     lines = [
         "# Eval results",
+        "",
+        f"Provider: **{provider}**.",
         "",
         f"{next(iter(results.values())).total} answerable questions and "
         f"{next(iter(results.values())).refusals_total} that must be refused, "
@@ -270,12 +288,20 @@ def report(results: dict[str, Tally], with_baseline: bool) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--models", default=",".join(MODELS))
+    ap.add_argument("--provider", default=settings.eval_provider,
+                    choices=sorted(MODELS),
+                    help="which API to run both arms against")
+    ap.add_argument("--models", default=None,
+                    help="comma-separated model ids; defaults to the "
+                         "provider's three tiers")
     ap.add_argument("--out", default="/docs/eval-results.md")
     ap.add_argument("--no-baseline", action="store_true")
     ap.add_argument("--limit", type=int, default=0,
                     help="run only the first N fixtures (for a smoke check)")
     args = ap.parse_args()
+
+    models = (args.models.split(",") if args.models
+              else MODELS[args.provider])
 
     fixtures = yaml.safe_load(FIXTURES.read_text())
     if args.limit:
@@ -284,13 +310,16 @@ def main() -> int:
     open_pools()
     try:
         results = {
-            model: evaluate(model, fixtures, with_baseline=not args.no_baseline)
-            for model in args.models.split(",")
+            model: evaluate(model, fixtures,
+                            with_baseline=not args.no_baseline,
+                            provider=args.provider)
+            for model in models
         }
     finally:
         close_pools()
 
-    text = report(results, with_baseline=not args.no_baseline)
+    text = report(results, with_baseline=not args.no_baseline,
+                  provider=args.provider)
     print(text)
     out = Path(args.out)
     if out.parent.exists():

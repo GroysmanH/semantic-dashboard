@@ -16,10 +16,11 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-import anthropic
 from pydantic import BaseModel, ConfigDict
 
+from app.config import Provider
 from app.db import warehouse_pool
+from app.llm.client import LLMError, LLMSchemaError, make_client
 
 SCHEMA_DDL = """\
 CREATE TABLE ddh.dim_wells (
@@ -61,23 +62,20 @@ class BaselineResult:
 UNKNOWN_OBJECT = re.compile(r'relation "([^"]+)" does not exist|column "([^"]+)" does not exist')
 
 
-def run_baseline(question: str, model: str) -> BaselineResult:
-    client = anthropic.Anthropic()
+def run_baseline(question: str, model: str,
+                 provider: Provider | None = None) -> BaselineResult:
+    # Same seam as the semantic arm, so both arms reach the same vendor
+    # through the same code and a provider switch cannot move one without
+    # moving the other.
+    client = make_client(provider, model=model)
     try:
-        response = client.messages.parse(
-            model=model, max_tokens=2048,
-            system=[{"type": "text", "text": SYSTEM,
-                     "cache_control": {"type": "ephemeral"}}],
-            messages=[{"role": "user", "content": question}],
-            output_format=SqlAnswer,
-        )
-    except anthropic.APIError as exc:
+        answer = client.ask(SYSTEM, question, SqlAnswer)
+    except LLMSchemaError as exc:
+        return BaselineResult(error=str(exc), error_kind="refused")
+    except LLMError as exc:
         return BaselineResult(error=str(exc), error_kind="unreachable")
 
-    if response.parsed_output is None:
-        return BaselineResult(error="no structured output", error_kind="refused")
-
-    sql = response.parsed_output.sql.strip().rstrip(";")
+    sql = answer.sql.strip().rstrip(";")
 
     # The read-only role is the same one the compiled path uses, so a
     # baseline query attempting a write fails here exactly as it would in

@@ -5,7 +5,11 @@ CREATE TABLE ddh.dim_wells (
     region_name  text        NOT NULL,
     field_name   text        NOT NULL,
     spud_date    date,
-    well_type    text
+    well_type    text,
+    -- Synthetic, jittered around real oblast centroids. Enough spatial
+    -- structure for a map to show clustering, no claim to be survey data.
+    latitude     numeric(9, 6),
+    longitude    numeric(9, 6)
 );
 
 CREATE TABLE ddh.fct_well_interventions (

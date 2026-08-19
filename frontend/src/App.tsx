@@ -3,11 +3,16 @@ import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import "./styles.css";
 import Board from "./components/Board";
+import type { Providers } from "./api/client";
 import { api } from "./api/client";
 
 export default function App() {
   const [boardId, setBoardId] = useState<string | null>(null);
   const [examples, setExamples] = useState<string[]>([]);
+  const [providers, setProviders] = useState<Providers>({
+    default: "anthropic",
+    available: [],
+  });
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -15,6 +20,7 @@ export default function App() {
       try {
         const [boards, layer] = await Promise.all([api.listBoards(), api.layer()]);
         setExamples(layer.examples);
+        setProviders(layer.providers);
         const board = boards[0] ?? (await api.createBoard("Operations"));
         setBoardId(board.id);
       } catch (e) {
@@ -31,7 +37,7 @@ export default function App() {
         <span className="spacer" />
       </header>
       {error && <p className="notice broken" style={{ margin: "1rem 1.25rem" }}>{error}</p>}
-      {boardId && <Board boardId={boardId} examples={examples} />}
+      {boardId && <Board boardId={boardId} examples={examples} providers={providers} />}
     </>
   );
 }

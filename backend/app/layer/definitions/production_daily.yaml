@@ -68,9 +68,38 @@ measures:
     column: oil_bbl
     description: Mean oil rate per well-day, in barrels.
 
+# Only definitions a business has an opinion about live here. Pure
+# arithmetic -- gas/oil, oil+water -- is reachable through the `ratio`
+# transform and a two-measure query, and declaring it would be
+# hand-maintaining four hundred combinations of twenty measures.
+derived:
+  water_cut:
+    label: water cut
+    formula: water / (oil + water)
+    description: Water as a share of total liquid produced. The industry
+      definition is water over oil-plus-water, not water over oil; a model
+      composing it unaided reaches for the wrong one.
+
+  uptime_pct:
+    label: uptime
+    formula: 1 - downtime / 24
+    description: Producing share of a well-day. The 24-hour denominator is
+      the convention that makes this a fraction rather than an hour count.
+
+# Coordinates are deliberately not dimensions. As dimensions they would be
+# selectable, and "oil by latitude" would compile, execute and mean
+# nothing. Here a map is a rendering of a per-well grouping, and the
+# nonsense question has no expression. Never rendered into the prompt.
+geo:
+  lat: wells.latitude
+  lon: wells.longitude
+  of: well_name
+
 synonyms:
   oil: [crude, oil rate, oil volume]
   gas: [natural gas, gas rate]
   water: [water cut volume, produced water]
   downtime: [outage, non-productive time, npt]
   region: [area, oblast]
+  water_cut: [wc, water fraction]
+  uptime_pct: [uptime, availability]

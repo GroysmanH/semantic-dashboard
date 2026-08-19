@@ -15,11 +15,25 @@ from typing import Any, Literal
 
 from psycopg import sql
 
-from ..layer.models import Dimension, Entity, Layer
-from .query import SemanticQuery
+from ..layer.models import Derived, Dimension, Entity, Layer
+from .query import MeasureRef, SemanticQuery
 from .validate import validate_query
 
 MAX_ROWS = 10_000
+
+# `ratio` is arithmetic over two aggregates and resolves in the grouped
+# SELECT. The rest need to see neighbouring rows, which means a window --
+# and a window means an outer layer, for a concrete reason: a window's
+# ORDER BY cannot use output ordinals, and `date_trunc($2, col)` is not
+# expression-equal to the `date_trunc($1, col)` in the GROUP BY, so
+# Postgres rejects it as ungrouped. Wrapping sidesteps that entirely and
+# reads far better in the SQL panel besides.
+_WINDOWED = {"percent_of_total", "previous_period", "period_change",
+             "period_change_pct", "cumulative", "moving_average", "rank"}
+
+
+def _needs_window(ref) -> bool:
+    return ref.transform in _WINDOWED
 
 ColumnKind = Literal["temporal", "nominal", "quantitative"]
 
@@ -64,7 +78,7 @@ def _dimension_expr(entity: Entity, name: str, dim: Dimension,
     return col
 
 
-def _measure_expr(entity: Entity, name: str) -> sql.Composable:
+def _base_measure_expr(entity: Entity, name: str) -> sql.Composable:
     m = entity.measures[name]
     if m.column == "*":
         return sql.SQL("COUNT(*)")
@@ -73,6 +87,60 @@ def _measure_expr(entity: Entity, name: str) -> sql.Composable:
         sql.Identifier(_base_alias(entity)),
         sql.Identifier(m.column),
     )
+
+
+def _formula_sql(entity: Entity, formula: str) -> sql.Composable:
+    """A declared formula, expanded so each operand becomes its own
+    aggregate.
+
+    This is where "a ratio of sums is not a sum of ratios" is enforced in
+    code rather than in a comment: `water / (oil + water)` becomes
+    `SUM(water_bbl) / NULLIF(SUM(oil_bbl) + SUM(water_bbl), 0)`, never
+    `SUM(water_bbl / (oil_bbl + water_bbl))`. Every division gets a NULLIF
+    so an empty denominator yields NULL rather than raising -- one bad
+    grouping should blank a point, not fail the card.
+    """
+    import ast
+
+    ops = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*"}
+
+    def walk(node: ast.AST) -> sql.Composable:
+        if isinstance(node, ast.Expression):
+            return walk(node.body)
+        if isinstance(node, ast.Name):
+            return _base_measure_expr(entity, node.id)
+        if isinstance(node, ast.Constant):
+            return sql.SQL("{}").format(sql.Literal(node.value))
+        if isinstance(node, ast.UnaryOp):
+            sign = "-" if isinstance(node.op, ast.USub) else "+"
+            return sql.SQL("({}{})").format(sql.SQL(sign), walk(node.operand))
+        if isinstance(node, ast.BinOp):
+            if isinstance(node.op, ast.Div):
+                return sql.SQL("({} / NULLIF({}, 0))").format(
+                    walk(node.left), walk(node.right))
+            return sql.SQL("({} {} {})").format(
+                walk(node.left), sql.SQL(ops[type(node.op)]), walk(node.right))
+        raise ValueError(f"unhandled formula node {type(node).__name__}")
+
+    return walk(ast.parse(formula, mode="eval"))
+
+
+def _grouped_measure_expr(entity: Entity, ref: MeasureRef) -> sql.Composable:
+    """The inner, pre-window expression for one measure reference.
+
+    Derived measures and `ratio` are pure arithmetic over aggregates, so
+    they resolve here. Everything else in the Transform enum needs to see
+    neighbouring rows and is applied in the outer layer.
+    """
+    if ref.transform == "ratio":
+        return sql.SQL("({} / NULLIF({}, 0))").format(
+            _base_measure_expr(entity, ref.name),
+            _base_measure_expr(entity, ref.per),
+        )
+    target = entity.measure(ref.name)
+    if isinstance(target, Derived):
+        return _formula_sql(entity, target.formula)
+    return _base_measure_expr(entity, ref.name)
 
 
 def _filter_sql(entity: Entity, f) -> tuple[sql.Composable, list[Any]]:
@@ -104,6 +172,53 @@ def _filter_sql(entity: Entity, f) -> tuple[sql.Composable, list[Any]]:
     raise ValueError(f"unhandled filter op {f.op!r}")   # pragma: no cover
 
 
+def _window_expr(ref: MeasureRef, temporal: list[str],
+                 nominal: list[str]) -> tuple[sql.Composable, list[Any]]:
+    """One transformed measure, expressed over the grouped result.
+
+    Time-series transforms partition by every non-temporal dimension and
+    order along the temporal one, so a per-region series steps through its
+    own months rather than through the interleaved rows of all regions --
+    the single most likely way this could be quietly wrong.
+    """
+    col = sql.Identifier(ref.name)
+    part = sql.SQL("")
+    if nominal:
+        part = sql.SQL("PARTITION BY {} ").format(
+            sql.SQL(", ").join(sql.Identifier(n) for n in nominal))
+    order = sql.SQL("ORDER BY {}").format(
+        sql.SQL(", ").join(sql.Identifier(t) for t in temporal)) if temporal else sql.SQL("")
+    over = sql.SQL("OVER ({}{})").format(part, order)
+    lag = sql.SQL("LAG({}) {}").format(col, over)
+
+    if ref.transform == "percent_of_total":
+        # Share within the period when there is one, otherwise across the
+        # whole result. Per-period is nearly always what "share by region
+        # over time" means.
+        scope = (sql.SQL("PARTITION BY {}").format(
+            sql.SQL(", ").join(sql.Identifier(t) for t in temporal))
+            if temporal else sql.SQL(""))
+        return sql.SQL("({} / NULLIF(SUM({}) OVER ({}), 0))").format(
+            col, col, scope), []
+    if ref.transform == "previous_period":
+        return lag, []
+    if ref.transform == "period_change":
+        return sql.SQL("({} - {})").format(col, lag), []
+    if ref.transform == "period_change_pct":
+        return sql.SQL("(({} - {}) / NULLIF({}, 0))").format(col, lag, lag), []
+    if ref.transform == "cumulative":
+        return sql.SQL("SUM({}) {}").format(col, over), []
+    if ref.transform == "moving_average":
+        return sql.SQL(
+            "AVG({}) OVER ({}{} ROWS BETWEEN %s PRECEDING AND CURRENT ROW)"
+        ).format(col, part, order), [ref.window - 1]
+    if ref.transform == "rank":
+        scope = sql.SQL("PARTITION BY {} ").format(
+            sql.SQL(", ").join(sql.Identifier(t) for t in temporal)) if temporal else sql.SQL("")
+        return sql.SQL("RANK() OVER ({}ORDER BY {} DESC)").format(scope, col), []
+    raise ValueError(f"unhandled transform {ref.transform!r}")   # pragma: no cover
+
+
 def compile_query(q: SemanticQuery, layer: Layer) -> CompiledQuery:
     entity = validate_query(q, layer)
     base = _base_alias(entity)
@@ -133,12 +248,23 @@ def compile_query(q: SemanticQuery, layer: Layer) -> CompiledQuery:
         columns.append(ref.field)
         kinds[ref.field] = "temporal" if dim.type == "date" else "nominal"
 
-    for name in q.measures:
-        select.append(
-            sql.SQL("{} AS {}").format(_measure_expr(entity, name), sql.Identifier(name))
-        )
-        columns.append(name)
-        kinds[name] = "quantitative"
+    # Measures that need a window are selected untransformed here and wrapped
+    # in the outer layer. A measure asked for both plainly and transformed
+    # appears once inside and twice outside.
+    windowed = [m for m in q.measures if _needs_window(m)]
+    inner_names: list[str] = []
+    for ref in q.measures:
+        name = ref.name if _needs_window(ref) else ref.output_name
+        if name in inner_names:
+            continue
+        inner_names.append(name)
+        expr = (_base_measure_expr(entity, ref.name) if _needs_window(ref)
+                else _grouped_measure_expr(entity, ref))
+        select.append(sql.SQL("{} AS {}").format(expr, sql.Identifier(name)))
+
+    for ref in q.measures:
+        columns.append(ref.output_name)
+        kinds[ref.output_name] = "quantitative"
 
     # Filters may pull in a join no dimension needed.
     where: list[sql.Composable] = []
@@ -173,6 +299,38 @@ def compile_query(q: SemanticQuery, layer: Layer) -> CompiledQuery:
 
     if group_by:
         stmt += sql.SQL(" GROUP BY ") + sql.SQL(", ").join(group_by)
+
+    # A window has to see the whole grouped result to be right: a running
+    # total over an arbitrary hundred rows is not a running total. So the
+    # inner layer carries only the safety cap and the asker's limit moves
+    # outside. Without transforms this is the same single statement it
+    # always was, byte for byte.
+    if windowed:
+        stmt += sql.SQL(" LIMIT %s")
+        params.append(MAX_ROWS)
+
+        temporal = [c for c in columns if kinds.get(c) == "temporal"]
+        nominal = [c for c in columns if kinds.get(c) == "nominal"]
+
+        outer: list[sql.Composable] = [sql.Identifier(c) for c in columns
+                                       if kinds.get(c) != "quantitative"]
+        outer_params: list[Any] = []
+        for ref in q.measures:
+            if _needs_window(ref):
+                expr, extra = _window_expr(ref, temporal, nominal)
+                outer_params.extend(extra)
+            else:
+                expr = sql.Identifier(ref.output_name)
+            outer.append(sql.SQL("{} AS {}").format(expr,
+                                                    sql.Identifier(ref.output_name)))
+
+        stmt = (sql.SQL("SELECT ") + sql.SQL(", ").join(outer)
+                + sql.SQL(" FROM (") + stmt + sql.SQL(") AS grouped"))
+        # Placeholders bind by position, and the outer SELECT is written
+        # before the subquery it wraps -- so its parameters lead. Appending
+        # them would misbind only `moving_average`, the one transform that
+        # carries a parameter, which is exactly the kind of bug that ships.
+        params = outer_params + params
 
     if q.order_by:
         parts = [

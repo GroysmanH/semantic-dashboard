@@ -97,13 +97,24 @@ def test_undeclared_grain_is_rejected(verified_layer):
     assert e.value.reason == "unsupported_grain"
 
 
-def test_more_than_two_dimensions_cannot_be_constructed():
-    """The ceiling is in the grammar, not in validation: three dimensions
-    is not a rejected query, it is an unrepresentable one."""
+def test_three_dimensions_are_representable():
+    """The third dimension becomes a facet. Whether it *should* is a
+    question about how many distinct values it has, which only the result
+    set can answer -- so it is asked in the chart builder, not here."""
+    q(dimensions=[DimensionRef(field="region"),
+                  DimensionRef(field="contractor"),
+                  DimensionRef(field="field_name")])
+
+
+def test_more_than_three_dimensions_cannot_be_constructed():
+    """The ceiling is in the grammar, not in validation: four dimensions is
+    not a rejected query, it is an unrepresentable one. There is no channel
+    left after x, y, colour and facet."""
     with pytest.raises(ValueError):
         q(dimensions=[DimensionRef(field="region"),
                       DimensionRef(field="contractor"),
-                      DimensionRef(field="field_name")])
+                      DimensionRef(field="field_name"),
+                      DimensionRef(field="well_name")])
 
 
 def test_duplicate_dimension_is_rejected(verified_layer):

@@ -29,10 +29,16 @@ export interface Board { id: string; title: string; cards: Card[] }
 
 /** Three possible answers, never a confidently wrong chart: a rendered
  *  card, one clarifying question, or a refusal naming what is undefined. */
-export type AskResult = { model?: string } & (
+export type AskResult = { model?: string; provider?: Provider } & (
   | { state: "refused" | "clarify"; message: string }
   | ({ state: "ready" | "broken" } & Render)
 );
+
+export type Provider = "anthropic" | "gemini";
+
+/** Only providers with a key configured; the selector offers no more than
+ *  what can actually answer. */
+export interface Providers { default: Provider; available: Provider[] }
 
 export interface LayerField { name: string; label: string; type?: string; agg?: string }
 export interface LayerInfo {
@@ -41,6 +47,7 @@ export interface LayerInfo {
     dimensions: LayerField[]; measures: LayerField[];
   }[];
   examples: string[];
+  providers: Providers;
 }
 
 export const api = {
@@ -58,10 +65,10 @@ export const api = {
   refreshCard: (id: string) => request<Card>(`/cards/${id}/refresh`, { method: "POST" }),
   deleteCard: (id: string) => request<void>(`/cards/${id}`, { method: "DELETE" }),
   layer: () => request<LayerInfo>("/layer"),
-  ask: (question: string, cardId: string, hard = false) =>
+  ask: (question: string, cardId: string, hard = false, provider?: Provider) =>
     request<AskResult>("/ask", {
       method: "POST",
-      body: JSON.stringify({ question, card_id: cardId, hard }),
+      body: JSON.stringify({ question, card_id: cardId, hard, provider }),
     }),
   runQuery: (body: {
     semantic_query: SemanticQuery;

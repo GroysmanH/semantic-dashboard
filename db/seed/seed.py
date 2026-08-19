@@ -26,6 +26,19 @@ INTERVENTION_START = date(2024, 1, 1)
 INTERVENTION_END = date(2026, 8, 1)
 
 REGIONS = ["Mangystau", "Atyrau", "Aktobe", "Kyzylorda", "West Kazakhstan"]
+
+# Approximate centroids of the real oblasts, in degrees. Wells are scattered
+# around these rather than placed on surveyed coordinates: enough spatial
+# structure that a map shows real clustering by region, and no pretence that
+# any individual point is where a well actually is.
+REGION_CENTRES = {
+    "Mangystau":       (43.7, 52.9),
+    "Atyrau":          (47.1, 51.9),
+    "Aktobe":          (49.5, 57.2),
+    "Kyzylorda":       (44.9, 65.5),
+    "West Kazakhstan": (50.5, 51.4),
+}
+REGION_SPREAD = 1.1     # degrees, roughly an oblast-sized scatter
 FIELDS = ["Uzen", "Zhetybai", "Karazhanbas", "Kalamkas", "Zhanazhol", "Kumkol"]
 WELL_TYPES = ["PRODUCER", "INJECTOR", "OBSERVATION"]
 INTERVENTION_TYPES = ["FRAC", "WORKOVER", "ACIDIZING", "PERFORATION"]
@@ -50,6 +63,7 @@ def main() -> None:
     wells = []
     for well_id in range(1, N_WELLS + 1):
         region = rng.choice(REGIONS)
+        lat0, lon0 = REGION_CENTRES[region]
         wells.append((
             well_id,
             f"KMG-{well_id:04d}",
@@ -57,6 +71,8 @@ def main() -> None:
             rng.choice(FIELDS),
             random_date(rng, date(1998, 1, 1), date(2023, 12, 31)),
             rng.choices(WELL_TYPES, weights=[80, 15, 5])[0],
+            round(rng.gauss(lat0, REGION_SPREAD / 2), 6),
+            round(rng.gauss(lon0, REGION_SPREAD / 2), 6),
         ))
 
     # A handful of interventions point at wells that do not exist. This is
@@ -102,7 +118,8 @@ def main() -> None:
                     "stg.interventions_raw")
 
         with cur.copy("COPY ddh.dim_wells (well_id, well_name, region_name, "
-                      "field_name, spud_date, well_type) FROM STDIN") as copy:
+                      "field_name, spud_date, well_type, latitude, longitude) "
+                      "FROM STDIN") as copy:
             for row in wells:
                 copy.write_row(row)
 
@@ -117,7 +134,11 @@ def main() -> None:
         with cur.copy("COPY ddh.fct_production_daily (well_id, reading_date, "
                       "oil_bbl, gas_mcf, water_bbl, downtime_hours) "
                       "FROM STDIN") as copy:
-            for well_id, _, _, _, _, well_type in wells:
+            # Indexed rather than unpacked: the row grew two coordinate
+            # columns and a positional unpack is the kind of thing that
+            # breaks silently the next time it grows.
+            for well in wells:
+                well_id, well_type = well[0], well[5]
                 if well_type != "PRODUCER":
                     continue
                 peak = rng.uniform(40, 900)
@@ -140,8 +161,11 @@ def main() -> None:
         # stg mirrors: same facts, raw source shapes, everything text.
         with cur.copy("COPY stg.wells_raw (well_id, wellname, region, "
                       "fieldname, spud_dt, welltype) FROM STDIN") as copy:
+            # The raw landing table predates the coordinates and stays as the
+            # source system sends it -- six columns, all text.
             for w in wells:
-                copy.write_row(tuple(None if v is None else str(v) for v in w))
+                copy.write_row(tuple(None if v is None else str(v)
+                                     for v in w[:6]))
 
         with cur.copy("COPY stg.interventions_raw (job_id, well_id, job_dt, "
                       "job_type, stat, gain, cost, contractor) "

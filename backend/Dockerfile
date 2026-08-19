@@ -9,7 +9,7 @@ RUN apt-get update \
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir \
       "fastapi>=0.115" "uvicorn[standard]>=0.32" "psycopg[binary,pool]>=3.2" \
-      "pydantic>=2.9" "pydantic-settings>=2.6" "pyyaml>=6.0" "anthropic>=0.40" \
+      "pydantic>=2.9" "pydantic-settings>=2.6" "pyyaml>=6.0" "anthropic>=0.40" "google-genai>=2.0" \
       "pytest>=8.3" "httpx>=0.27"
 
 COPY . .

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import GridLayout from "react-grid-layout";
-import type { Board as BoardT, Layout } from "../api/client";
+import type { Board as BoardT, Layout, Providers } from "../api/client";
 import { api } from "../api/client";
 import Card from "./Card";
 
@@ -10,9 +10,11 @@ const ROW_HEIGHT = 32;
 export default function Board({
   boardId,
   examples,
+  providers,
 }: {
   boardId: string;
   examples: string[];
+  providers: Providers;
 }) {
   const [board, setBoard] = useState<BoardT | null>(null);
   const [width, setWidth] = useState(() => window.innerWidth - 40);
@@ -86,7 +88,7 @@ export default function Board({
         >
           {board.cards.map((c) => (
             <div key={c.id}>
-              <Card card={c} examples={examples} onChanged={load} />
+              <Card card={c} examples={examples} providers={providers} onChanged={load} />
             </div>
           ))}
         </GridLayout>

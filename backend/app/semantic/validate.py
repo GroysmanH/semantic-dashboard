@@ -6,8 +6,16 @@ informative first, so a refusal names the single most useful thing.
 
 from __future__ import annotations
 
-from ..layer.models import Dimension, Entity, Layer, Measure
-from .query import Filter, SemanticQuery
+from ..layer.models import Derived, Dimension, Entity, Layer, Measure
+from .query import MAX_WINDOW, Filter, MeasureRef, SemanticQuery
+
+# Transforms that step through a series and are therefore meaningless
+# without one to step through.
+NEEDS_TIME = {"previous_period", "period_change", "period_change_pct",
+              "cumulative", "moving_average"}
+# Transforms that describe a member's standing among its peers, which
+# requires there to be peers.
+NEEDS_GROUPING = {"percent_of_total", "rank"}
 
 # Ops that only make sense on ordered types.
 ORDERED_OPS = {"between", "in_year", "last_n_days"}
@@ -28,8 +36,8 @@ class QueryValidationError(ValueError):
         self.detail = detail
 
 
-def _field(entity: Entity, name: str) -> Dimension | Measure | None:
-    return entity.dimensions.get(name) or entity.measures.get(name)
+def _field(entity: Entity, name: str) -> Dimension | Measure | Derived | None:
+    return entity.dimensions.get(name) or entity.measure(name)
 
 
 def validate_query(q: SemanticQuery, layer: Layer) -> Entity:
@@ -55,14 +63,9 @@ def validate_query(q: SemanticQuery, layer: Layer) -> Entity:
             f"until they are reviewed: {fields}.",
         )
 
-    # 3. Measures.
-    for name in q.measures:
-        if name not in entity.measures:
-            raise QueryValidationError(
-                "unknown_measure",
-                f"{entity.label} has no measure {name!r}. "
-                f"Available: {', '.join(sorted(entity.measures))}.",
-            )
+    # 3. Measures, and the transforms applied to them.
+    for ref in q.measures:
+        _validate_measure(entity, ref, q)
 
     # 4. Dimensions and grains.
     for ref in q.dimensions:
@@ -97,8 +100,10 @@ def validate_query(q: SemanticQuery, layer: Layer) -> Entity:
     for f in q.filters:
         _validate_filter(entity, f)
 
-    # 7. Ordering may only reference something actually selected.
-    selectable = set(q.measures) | {r.field for r in q.dimensions}
+    # 7. Ordering may only reference something actually selected. A
+    #    transformed measure is ordered by its output name, not its base
+    #    name -- `oil` and `oil_cumulative` are different columns.
+    selectable = set(q.measure_names) | {r.field for r in q.dimensions}
     for ob in q.order_by:
         if ob.field not in selectable:
             raise QueryValidationError(
@@ -110,6 +115,87 @@ def validate_query(q: SemanticQuery, layer: Layer) -> Entity:
     return entity
 
 
+def _validate_measure(entity: Entity, ref: MeasureRef, q: SemanticQuery) -> None:
+    known = entity.measure_names
+    if entity.measure(ref.name) is None:
+        raise QueryValidationError(
+            "unknown_measure",
+            f"{entity.label} has no measure {ref.name!r}. "
+            f"Available: {', '.join(known)}.",
+        )
+
+    if ref.transform is None:
+        for extra, why in (("per", "ratio"), ("window", "moving_average")):
+            if getattr(ref, extra) is not None:
+                raise QueryValidationError(
+                    "transform_argument_without_transform",
+                    f"{extra!r} only means something with "
+                    f"transform: {why}, and {ref.name!r} has no transform.",
+                )
+        return
+
+    if ref.transform == "ratio":
+        if ref.per is None:
+            raise QueryValidationError(
+                "ratio_needs_denominator",
+                f"A ratio needs something to divide by. Set 'per' to one of: "
+                f"{', '.join(known)}.",
+            )
+        if entity.measure(ref.per) is None:
+            raise QueryValidationError(
+                "unknown_measure",
+                f"{entity.label} has no measure {ref.per!r} to divide by. "
+                f"Available: {', '.join(known)}.",
+            )
+        if ref.per == ref.name:
+            raise QueryValidationError(
+                "degenerate_ratio",
+                f"{ref.name!r} divided by itself is 1 in every row.",
+            )
+    elif ref.per is not None:
+        raise QueryValidationError(
+            "per_without_ratio",
+            f"'per' only applies to transform: ratio, not {ref.transform!r}.",
+        )
+
+    if ref.transform == "moving_average":
+        if ref.window is None:
+            raise QueryValidationError(
+                "window_required",
+                f"A moving average needs a window: how many periods to "
+                f"average over, between 2 and {MAX_WINDOW}.",
+            )
+    elif ref.window is not None:
+        raise QueryValidationError(
+            "window_without_moving_average",
+            f"'window' only applies to transform: moving_average, "
+            f"not {ref.transform!r}.",
+        )
+
+    if ref.transform in NEEDS_TIME:
+        dated = [r for r in q.dimensions
+                 if entity.dimensions[r.field].type == "date" and r.grain]
+        if not dated:
+            raise QueryValidationError(
+                "transform_needs_time",
+                f"{ref.transform!r} compares each period with the one before "
+                f"it, so the query needs a date dimension with a grain.",
+            )
+        if len(dated) > 1:
+            raise QueryValidationError(
+                "transform_needs_one_time_axis",
+                f"{ref.transform!r} needs a single time axis to step along, "
+                f"but two date dimensions are requested.",
+            )
+
+    if ref.transform in NEEDS_GROUPING and not q.dimensions:
+        raise QueryValidationError(
+            "transform_needs_grouping",
+            f"{ref.transform!r} compares a group with its peers, so the "
+            f"query needs at least one dimension.",
+        )
+
+
 def _validate_filter(entity: Entity, f: Filter) -> None:
     target = _field(entity, f.field)
     if target is None:
@@ -119,6 +205,13 @@ def _validate_filter(entity: Entity, f: Filter) -> None:
         )
 
     ftype = target.type if isinstance(target, Dimension) else "number"
+
+    if isinstance(target, Derived):
+        raise QueryValidationError(
+            "filter_on_derived",
+            f"{f.field!r} is computed from other measures after grouping, so "
+            f"it cannot be filtered on.",
+        )
 
     if f.op in DATE_ONLY_OPS and ftype != "date":
         raise QueryValidationError(

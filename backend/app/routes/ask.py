@@ -11,9 +11,9 @@ import uuid
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from ..config import settings
+from ..config import Provider, settings
 from ..deps import LAYER, SYNONYMS, example_questions
-from ..llm.client import AnthropicClient
+from ..llm.client import LLMError, configured_providers, make_client
 from ..llm.query_step import ask as ask_model
 from ..render import render, to_payload
 from ..semantic.query import ChartHint, SemanticQuery
@@ -29,6 +29,10 @@ class AskIn(BaseModel):
     # costs. Exposing a model id here would let any caller spend the
     # expensive one, and would ask a manager to reason about model names.
     hard: bool = False
+    # Which API answers. Unlike a model id this is not an escalator -- it
+    # chooses which account pays, and one of the two is free -- so it is
+    # safe to expose. `hard` remains the only way to spend more.
+    provider: Provider | None = None
 
 
 class QueryIn(BaseModel):
@@ -63,6 +67,10 @@ def get_layer():
             for e in LAYER.values()
         ],
         "examples": example_questions(),
+        "providers": {
+            "default": settings.llm_provider,
+            "available": configured_providers(),
+        },
     }
 
 
@@ -107,14 +115,19 @@ def ask(body: AskIn):
     current = (SemanticQuery.model_validate(card["semantic_query"])
                if card and card.get("semantic_query") else None)
 
-    model = settings.llm_model_strong if body.hard else settings.llm_model
-    outcome = ask_model(body.question, LAYER, AnthropicClient(model),
+    try:
+        client = make_client(body.provider, hard=body.hard)
+    except LLMError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    who = {"provider": client.provider, "model": client.model}
+
+    outcome = ask_model(body.question, LAYER, client,
                         synonyms=SYNONYMS, current=current)
 
     if outcome.refusal:
-        return {"state": "refused", "message": outcome.refusal, "model": model}
+        return {"state": "refused", "message": outcome.refusal, **who}
     if outcome.clarify:
-        return {"state": "clarify", "message": outcome.clarify, "model": model}
+        return {"state": "clarify", "message": outcome.clarify, **who}
 
     r = render(outcome.query, LAYER, chart_hint=outcome.chart_hint,
                title=outcome.title)
@@ -124,4 +137,4 @@ def ask(body: AskIn):
                       title=outcome.title, card_id=body.card_id), r)
         store.update_card(body.card_id, prompt=body.question)
 
-    return {"state": r.state, "model": model, **to_payload(r)}
+    return {"state": r.state, **who, **to_payload(r)}

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Card as CardT } from "../api/client";
+import type { Card as CardT, Providers } from "../api/client";
 import { api } from "../api/client";
 import CardHeader from "./CardHeader";
 import EmptyCard from "./EmptyCard";
@@ -9,10 +9,12 @@ import VegaChart from "./VegaChart";
 export default function Card({
   card,
   examples,
+  providers,
   onChanged,
 }: {
   card: CardT;
   examples: string[];
+  providers: Providers;
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -61,13 +63,14 @@ export default function Card({
         {state === "empty" && (
           <EmptyCard
             examples={examples}
+            providers={providers}
             busy={busy}
             note={askNote}
-            onAsk={async (question, hard) => {
+            onAsk={async (question, hard, provider) => {
               setBusy(true);
               setAskNote(null);
               try {
-                const result = await api.ask(question, card.id, hard);
+                const result = await api.ask(question, card.id, hard, provider);
                 if (result.state === "clarify" || result.state === "refused") {
                   setAskNote(result.message);
                 } else {

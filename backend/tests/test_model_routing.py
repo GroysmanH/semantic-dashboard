@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import settings
-from app.llm.client import DEFAULT_MODEL, AnthropicClient
+from app.llm.client import DEFAULT_MODEL, AnthropicClient, make_client
 from app.main import app
 
 
@@ -43,31 +43,41 @@ def test_an_unknown_key_on_the_ask_body_is_ignored_not_honoured():
     assert not hasattr(body, "model")
 
 
-@pytest.mark.parametrize("hard,expected", [
-    (False, "claude-haiku-4-5"),
-    (True, "claude-sonnet-5"),
+@pytest.mark.parametrize("provider,hard,expected", [
+    (None, False, "claude-haiku-4-5"),
+    (None, True, "claude-sonnet-5"),
+    ("anthropic", False, "claude-haiku-4-5"),
+    ("anthropic", True, "claude-sonnet-5"),
+    ("gemini", False, "gemini-3.5-flash"),
+    ("gemini", True, "gemini-3.6-flash"),
 ])
-def test_the_hard_flag_selects_the_model(monkeypatch, hard, expected):
-    """Routing is asserted without calling the API: the fake records which
-    model it was constructed with and then refuses."""
-    seen = {}
+def test_the_hard_flag_selects_the_model(monkeypatch, provider, hard, expected):
+    """Routing is asserted without calling the API: the real factory picks
+    the client, and its `ask` is stubbed to refuse before spending."""
+    def refuse(self, system, user, schema):
+        from app.llm.client import LLMError
 
-    class FakeClient:
-        def __init__(self, model=None, **kw):
-            seen["model"] = model
+        raise LLMError("stopped before spending anything")
 
-        def ask(self, system, user, schema):
-            from app.llm.client import LLMError
+    monkeypatch.setattr("app.llm.client.AnthropicClient.ask", refuse)
+    monkeypatch.setattr("app.llm.client.GeminiClient.ask", refuse)
 
-            raise LLMError("stopped before spending anything")
-
-    monkeypatch.setattr("app.routes.ask.AnthropicClient", FakeClient)
+    body = {"question": "oil by month", "hard": hard}
+    if provider:
+        body["provider"] = provider
 
     # Not a `with` block: entering TestClient's context runs the FastAPI
     # lifespan, and its shutdown closes the pools the rest of the suite
     # shares. The session fixture has already opened them.
-    r = TestClient(app).post("/ask", json={"question": "oil by month", "hard": hard})
+    r = TestClient(app).post("/ask", json=body)
 
     assert r.status_code == 200
-    assert seen["model"] == expected
     assert r.json()["model"] == expected
+    assert r.json()["provider"] == (provider or settings.llm_provider)
+
+
+def test_the_request_cannot_name_a_model_even_via_the_provider_field():
+    """`provider` is a choice of who pays, not how much. An unknown value
+    is rejected outright rather than falling back to the expensive one."""
+    r = TestClient(app).post("/ask", json={"question": "oil", "provider": "openai"})
+    assert r.status_code == 422
