@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import Protocol, TypeVar
 
 import anthropic
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from ..config import settings
 
@@ -20,10 +20,26 @@ T = TypeVar("T", bound=BaseModel)
 DEFAULT_MODEL = "claude-sonnet-5"
 
 
+class LLMSchemaError(RuntimeError):
+    """The model answered, but outside the grammar -- three dimensions where
+    two are allowed, say. Structured output constrains the JSON shape, not
+    every bound in the schema, so this is a normal outcome rather than an
+    exceptional one, and it is worth one retry with the reason attached."""
+
+
 class LLMError(RuntimeError):
     """Carries a sentence a manager can act on. The underlying exception is
     still chained for the logs -- a raw provider payload in the card is
     noise to the person reading it."""
+
+
+def _schema_reason(exc: ValidationError) -> str:
+    """One sentence per violated bound, in the grammar's own terms."""
+    parts = []
+    for err in exc.errors():
+        loc = ".".join(str(p) for p in err["loc"] if not isinstance(p, int))
+        parts.append(f"{loc}: {err['msg']}")
+    return "; ".join(parts) or "the answer did not fit the query grammar"
 
 
 def _explain(status: int, model: str) -> str:
@@ -66,6 +82,8 @@ class AnthropicClient:
                 messages=[{"role": "user", "content": user}],
                 output_format=schema,
             )
+        except ValidationError as exc:
+            raise LLMSchemaError(_schema_reason(exc)) from exc
         except anthropic.APIStatusError as exc:
             raise LLMError(_explain(exc.status_code, self.model)) from exc
         except anthropic.APIConnectionError as exc:

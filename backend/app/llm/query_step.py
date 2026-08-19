@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict
 from ..layer.models import Layer
 from ..semantic.query import ChartHint, SemanticQuery
 from ..semantic.validate import QueryValidationError, validate_query
-from .client import LLMClient, LLMError
+from .client import LLMClient, LLMError, LLMSchemaError
 from .prompt import build_system_prompt
 
 
@@ -107,8 +107,16 @@ def ask(question: str, layer: Layer, client: LLMClient,
         )
         try:
             answer = client.ask(system, prompt, AskResponse)
+        except LLMSchemaError as exc:
+            # An answer outside the grammar is the same kind of event as one
+            # that fails layer validation: retry once with the reason, then
+            # refuse. Questions needing three dimensions land here, and the
+            # grammar not holding them is the point.
+            last_error = str(exc)
+            continue
         except LLMError as exc:
-            # LLMError already carries a sentence for the reader.
+            # Transport and credential failures already carry a sentence for
+            # the reader, and no retry will fix them.
             return AskOutcome(refusal=str(exc), attempts=attempts)
 
         try:

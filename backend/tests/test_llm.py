@@ -216,3 +216,36 @@ def test_model_errors_are_written_for_the_person_reading_them(status, fragment):
     message = _explain(status, "claude-sonnet-5")
     assert fragment in message
     assert "{" not in message and "'type'" not in message
+
+
+def test_an_out_of_grammar_answer_is_retried_then_refused(verified):
+    """Three dimensions is unrepresentable, not merely wrong. Structured
+    output does not enforce every schema bound, so this arrives as a
+    validation failure and must refuse rather than crash the caller."""
+    from app.llm.client import LLMSchemaError
+
+    client = FakeClient(error=LLMSchemaError(
+        "semantic_query.dimensions: List should have at most 2 items"))
+    out = ask("oil by month, region and well type", verified, client)
+    assert out.query is None
+    assert "at most 2 items" in out.refusal
+    assert out.attempts == 2          # retried once, then gave up
+
+
+def test_a_schema_failure_then_a_good_answer_succeeds(verified):
+    from app.llm.client import LLMSchemaError
+
+    class Flaky:
+        def __init__(self):
+            self.calls = []
+
+        def ask(self, system, user, schema):
+            self.calls.append(user)
+            if len(self.calls) == 1:
+                raise LLMSchemaError("dimensions: at most 2 items")
+            return response()
+
+    client = Flaky()
+    out = ask("oil by lots of things", verified, client)
+    assert out.query is not None
+    assert "at most 2 items" in client.calls[1]     # the reason was fed back
