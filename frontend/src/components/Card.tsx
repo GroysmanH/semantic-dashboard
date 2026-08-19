@@ -104,7 +104,13 @@ export default function Card({
             <div className="chart-slot">
               <VegaChart
                 spec={render.vega_spec as Record<string, unknown>}
-                rows={render.rows as Record<string, unknown>[]}
+                /* chart_rows is set only when the builder changed what the
+                   chart draws -- a pie's collapsed tail. `rows` stays the
+                   untouched result set behind the SQL panel and row count,
+                   and the restatement explains the difference. */
+                rows={
+                  (render.chart_rows ?? render.rows) as Record<string, unknown>[]
+                }
               />
             </div>
             {render.compiled_sql && <SqlPanel sql={render.compiled_sql} />}

@@ -99,6 +99,69 @@
       "title": "Filter",
       "type": "object"
     },
+    "MeasureRef": {
+      "additionalProperties": false,
+      "description": "A measure, optionally transformed.\n\nBare strings are still legal everywhere a measure is named -- every\nsaved card and every existing fixture predates this model -- and are\nnormalised into `MeasureRef(name=...)` on the way in.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "per": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Per"
+        },
+        "transform": {
+          "anyOf": [
+            {
+              "enum": [
+                "percent_of_total",
+                "previous_period",
+                "period_change",
+                "period_change_pct",
+                "cumulative",
+                "moving_average",
+                "rank",
+                "ratio"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Transform"
+        },
+        "window": {
+          "anyOf": [
+            {
+              "maximum": 52,
+              "minimum": 2,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "MeasureRef",
+      "type": "object"
+    },
     "OrderBy": {
       "additionalProperties": false,
       "properties": {
@@ -134,7 +197,14 @@
                 "area",
                 "point",
                 "heatmap",
-                "big_number"
+                "big_number",
+                "pie",
+                "donut",
+                "stacked_bar",
+                "normalised_bar",
+                "scatter",
+                "bubble",
+                "map"
               ],
               "type": "string"
             },
@@ -144,6 +214,22 @@
           ],
           "default": null,
           "title": "Chart Hint"
+        },
+        "chart_rows": {
+          "anyOf": [
+            {
+              "items": {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chart Rows"
         },
         "chart_type": {
           "anyOf": [
@@ -287,13 +373,13 @@
     },
     "SemanticQuery": {
       "additionalProperties": false,
-      "description": "One entity, N measures, up to 2 dimensions. Deliberately no joins\nbeyond declared `via` paths, no window functions, no subqueries, and\nno DML \u2014 those are not hard here, they are impossible.",
+      "description": "One entity, N measures, up to 3 dimensions.\n\nDeliberately still no joins beyond declared `via` paths, no subqueries,\nno free-form expressions and no DML \u2014 those are not hard here, they are\nimpossible. Window functions arrived as a closed `Transform` enum the\ncompiler implements, which is a different thing from letting the model\nwrite one.",
       "properties": {
         "dimensions": {
           "items": {
             "$ref": "#/$defs/DimensionRef"
           },
-          "maxItems": 2,
+          "maxItems": 3,
           "title": "Dimensions",
           "type": "array"
         },
@@ -317,7 +403,7 @@
         },
         "measures": {
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/MeasureRef"
           },
           "minItems": 1,
           "title": "Measures",

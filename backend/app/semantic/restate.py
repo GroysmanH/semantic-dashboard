@@ -103,6 +103,18 @@ def _measure_phrase(entity: Entity, ref: MeasureRef) -> str:
 
     if ref.transform is None:
         return base
+
+    # Under a transform the aggregation word mostly stops earning its
+    # place: "running total of sum of oil production" says sum twice over.
+    # A sum is what a measure is assumed to be, so it goes unsaid here --
+    # anything else stays, because "running total of average daily oil per
+    # well" is a different quantity and the reader has to know which.
+    if isinstance(target, Derived) or target.agg == "sum":
+        base = label
+    else:
+        base = _AGG_PHRASE[target.agg].format(label)
+    base = base[:1].lower() + base[1:]
+
     if ref.transform == "ratio":
         other = entity.measure(ref.per)
         return _TRANSFORM_PHRASE["ratio"].format(

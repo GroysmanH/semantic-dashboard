@@ -5,7 +5,28 @@
  * and run json-schema-to-typescript to regenerate this file.
  */
 
-export type ChartHint = ("line" | "bar" | "area" | "point" | "heatmap" | "big_number") | null;
+export type ChartHint =
+  | (
+      | "line"
+      | "bar"
+      | "area"
+      | "point"
+      | "heatmap"
+      | "big_number"
+      | "pie"
+      | "donut"
+      | "stacked_bar"
+      | "normalised_bar"
+      | "scatter"
+      | "bubble"
+      | "map"
+    )
+  | null;
+export type ChartRows =
+  | {
+      [k: string]: unknown;
+    }[]
+  | null;
 export type ChartType = string | null;
 export type CompiledSql = string | null;
 export type DataMaxTs = string | null;
@@ -20,9 +41,10 @@ export type Rows = {
   [k: string]: unknown;
 }[];
 /**
- * @maxItems 2
+ * @maxItems 3
  */
-export type Dimensions = [] | [DimensionRef] | [DimensionRef, DimensionRef];
+export type Dimensions =
+  [] | [DimensionRef] | [DimensionRef, DimensionRef] | [DimensionRef, DimensionRef, DimensionRef];
 export type Field = string;
 export type Grain = ("day" | "month" | "quarter" | "year") | null;
 export type Entity = string;
@@ -34,7 +56,22 @@ export type Limit = number;
 /**
  * @minItems 1
  */
-export type Measures = [string, ...string[]];
+export type Measures = [MeasureRef, ...MeasureRef[]];
+export type Name = string;
+export type Per = string | null;
+export type Transform =
+  | (
+      | "percent_of_total"
+      | "previous_period"
+      | "period_change"
+      | "period_change_pct"
+      | "cumulative"
+      | "moving_average"
+      | "rank"
+      | "ratio"
+    )
+  | null;
+export type Window = number | null;
 export type Dir = "asc" | "desc";
 export type Field2 = string;
 export type OrderBy = OrderBy1[];
@@ -57,6 +94,7 @@ export interface ApiContract {
  */
 export interface Render {
   chart_hint?: ChartHint;
+  chart_rows?: ChartRows;
   chart_type?: ChartType;
   compiled_sql?: CompiledSql;
   data_max_ts?: DataMaxTs;
@@ -74,9 +112,13 @@ export interface Render {
   [k: string]: unknown;
 }
 /**
- * One entity, N measures, up to 2 dimensions. Deliberately no joins
- * beyond declared `via` paths, no window functions, no subqueries, and
- * no DML — those are not hard here, they are impossible.
+ * One entity, N measures, up to 3 dimensions.
+ *
+ * Deliberately still no joins beyond declared `via` paths, no subqueries,
+ * no free-form expressions and no DML — those are not hard here, they are
+ * impossible. Window functions arrived as a closed `Transform` enum the
+ * compiler implements, which is a different thing from letting the model
+ * write one.
  */
 export interface SemanticQuery {
   dimensions?: Dimensions;
@@ -94,6 +136,19 @@ export interface Filter {
   field: Field1;
   op: Op;
   value?: Value;
+}
+/**
+ * A measure, optionally transformed.
+ *
+ * Bare strings are still legal everywhere a measure is named -- every
+ * saved card and every existing fixture predates this model -- and are
+ * normalised into `MeasureRef(name=...)` on the way in.
+ */
+export interface MeasureRef {
+  name: Name;
+  per?: Per;
+  transform?: Transform;
+  window?: Window;
 }
 export interface OrderBy1 {
   dir?: Dir;

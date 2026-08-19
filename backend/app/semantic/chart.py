@@ -337,13 +337,17 @@ def build_spec(compiled: CompiledQuery, rows: list[dict[str, Any]] | None = None
             encoding = {"x": x, "y": y}
             if _is_signed(compiled, measure):
                 # Negatives must read as negative at a glance, or the chart
-                # is correct and backwards.
+                # is correct and backwards. The zero baseline does that on
+                # any mark; the diverging colour only works on discrete
+                # ones, since a line is a single path and cannot be two
+                # colours at once.
                 y["scale"] = {"zero": True}
-                encoding["color"] = {
-                    "condition": {"test": f"datum['{measure}'] < 0",
-                                  "value": "#b4611a"},
-                    "value": "#1f6f63",
-                }
+                if _mark(mark) in ("bar", "point"):
+                    encoding["color"] = {
+                        "condition": {"test": f"datum['{measure}'] < 0",
+                                      "value": "#b4611a"},
+                        "value": "#1f6f63",
+                    }
             spec.update({
                 "mark": {"type": _mark(mark), "tooltip": True,
                          **({"point": True} if mark == "line" else {})},
@@ -409,7 +413,8 @@ def _map(compiled: CompiledQuery, dim: str, measure: str,
     return ChartResult(
         {"$schema": SCHEMA,
          "layer": [
-             {"data": {"name": "outline", "format": {"type": "topojson"}},
+             {"data": {"name": "outline",
+                       "format": {"type": "json", "property": "features"}},
               "mark": {"type": "geoshape", "fill": "#e3e9e3", "stroke": "#cdd6ce"}},
              {"data": {"name": ROWS},
               "mark": {"type": "circle", "tooltip": True, "opacity": 0.75},
