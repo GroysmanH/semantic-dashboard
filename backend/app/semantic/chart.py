@@ -174,8 +174,10 @@ def _hint_fits(hint: ChartHint, temporal: list[str], nominal: list[str],
     if need == "three_measures":
         return len(quantitative) >= 3 and n_dims == 1
     if need == "geo":
-        geo = compiled.entity.geo
-        return geo is not None and nominal == [geo.of]
+        # Not "the entity has coordinates" but "this query selected them".
+        # The looser test is how a map spec came to reference columns the
+        # SQL never emitted, plotting every well at one default position.
+        return len(compiled.geo_columns) == 2 and len(nominal) == 1
     return True
 
 
@@ -407,9 +409,7 @@ def _map(compiled: CompiledQuery, dim: str, measure: str,
     something the grammar can be talked into. The outline is a second
     dataset, which is why the frontend must stop replacing `data` wholesale.
     """
-    geo = compiled.entity.geo
-    lat = geo.lat.split(".")[-1]
-    lon = geo.lon.split(".")[-1]
+    lat, lon = compiled.geo_columns
     return ChartResult(
         {"$schema": SCHEMA,
          "layer": [

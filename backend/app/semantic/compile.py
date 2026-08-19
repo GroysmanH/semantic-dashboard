@@ -50,6 +50,11 @@ class CompiledQuery:
     entity: Entity
     query: SemanticQuery
     joins_used: list[str] = field(default_factory=list)
+    # Coordinates, when the query groups by the dimension they belong to.
+    # Kept out of `columns` and `column_kinds` on purpose: they are not
+    # measures, and counting them as such would change the measure count,
+    # which is what picks the chart.
+    geo_columns: list[str] = field(default_factory=list)
 
 
 def _base_alias(entity: Entity) -> str:
@@ -266,6 +271,27 @@ def compile_query(q: SemanticQuery, layer: Layer) -> CompiledQuery:
         columns.append(ref.output_name)
         kinds[ref.output_name] = "quantitative"
 
+    # Coordinates ride along whenever the query groups by the dimension
+    # they describe. The chart builder cannot ask for them -- it runs after
+    # compilation -- and the model must never name them, so the only place
+    # this decision can live is here, keyed off the grouping.
+    #
+    # MIN rather than a bare column because the query is grouped: one well
+    # has one location, so MIN(latitude) is that location, and Postgres
+    # requires an aggregate either way.
+    geo_columns: list[str] = []
+    geo = entity.geo
+    if geo is not None and any(r.field == geo.of for r in q.dimensions):
+        for ref in (geo.lat, geo.lon):
+            alias, column = (ref.split(".", 1) if "." in ref
+                             else (base, ref))
+            if alias != base and alias not in joins_needed:
+                joins_needed.append(alias)
+            select.append(sql.SQL("MIN({}.{}) AS {}").format(
+                sql.Identifier(alias), sql.Identifier(column),
+                sql.Identifier(column)))
+            geo_columns.append(column)
+
     # Filters may pull in a join no dimension needed.
     where: list[sql.Composable] = []
     where_params: list[Any] = []
@@ -314,6 +340,7 @@ def compile_query(q: SemanticQuery, layer: Layer) -> CompiledQuery:
 
         outer: list[sql.Composable] = [sql.Identifier(c) for c in columns
                                        if kinds.get(c) != "quantitative"]
+        outer.extend(sql.Identifier(c) for c in geo_columns)
         outer_params: list[Any] = []
         for ref in q.measures:
             if _needs_window(ref):
@@ -353,6 +380,7 @@ def compile_query(q: SemanticQuery, layer: Layer) -> CompiledQuery:
         entity=entity,
         query=q,
         joins_used=joins_needed,
+        geo_columns=geo_columns,
     )
 
 

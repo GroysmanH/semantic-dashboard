@@ -223,11 +223,43 @@ def test_no_spec_ever_carries_an_aggregate_key(layer, hint, body):
 @pytest.mark.parametrize("hint,body", ALL_SHAPES)
 def test_every_spec_field_is_an_output_column(layer, hint, body):
     compiled = compile_query(q(**body), layer)
-    allowed = set(compiled.columns) | {"measure", "value"}
-    if compiled.entity.geo:
-        allowed |= {compiled.entity.geo.lat.split(".")[-1],
-                    compiled.entity.geo.lon.split(".")[-1]}
+    # geo_columns, not "whatever the entity declares". The earlier version
+    # allowed any coordinate the layer mentioned, whether or not the SQL
+    # emitted it -- which is exactly how a map spec came to reference
+    # columns that were not in the result, plotting every well at one
+    # default position while this test passed.
+    allowed = set(compiled.columns) | set(compiled.geo_columns) | {"measure", "value"}
     r = drawn(layer, hint, **body)
     for node in walk(r.vega_spec):
         if "field" in node and isinstance(node["field"], str):
             assert node["field"] in allowed, node
+
+
+def test_a_map_plots_coordinates_the_query_actually_returned(layer):
+    """The bug this pins: the spec asked Vega for latitude and longitude
+    channels, the SELECT emitted neither, and every well landed on one
+    default position outside the country. Valid spec, valid SQL, and a map
+    of a single dot."""
+    r = drawn(layer, "map", measures=["oil"],
+              dimensions=[{"field": "well_name"}], limit=50)
+    assert r.chart_type == "map"
+
+    fields = {node["field"] for node in walk(r.vega_spec)
+              if isinstance(node.get("field"), str)}
+    assert {"latitude", "longitude"} <= fields
+
+    # And the rows carry them, with real spread rather than one point.
+    lats = {row["latitude"] for row in r.rows}
+    lons = {row["longitude"] for row in r.rows}
+    assert len(lats) > 10 and len(lons) > 10
+    assert all(40 < float(v) < 56 for v in lats)
+    assert all(46 < float(v) < 88 for v in lons)
+
+
+def test_a_map_is_refused_when_the_query_has_no_coordinates(layer):
+    """Grouping by region selects no coordinates, so there is nothing to
+    plot -- and the hint must be overruled rather than drawing an empty
+    projection."""
+    r = drawn(layer, "map", measures=["oil"], dimensions=[{"field": "region"}])
+    assert r.chart_type != "map"
+    assert r.hint_rejected
