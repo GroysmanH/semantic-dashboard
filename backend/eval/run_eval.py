@@ -37,6 +37,41 @@ FIXTURES = Path(__file__).parent / "fixtures.yaml"
 MODELS = ["claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"]
 
 
+def relaxed_match(got: SemanticQuery, expected: SemanticQuery,
+                  raw_expected: dict) -> bool:
+    """Equal on everything the fixture actually specified.
+
+    List order never matters. Beyond that, a field the fixture left at its
+    default is not compared: when the fixture author expressed no opinion
+    about ordering, a model that adds a sensible `order_by` has not made a
+    mistake, and whether the rows come back the same is what `execution`
+    is for. Where the fixture *does* specify ordering or a limit -- "top 5
+    fields by oil" -- both are compared, so a model that drops the ranking
+    is not quietly forgiven.
+    """
+    if got.entity != expected.entity:
+        return False
+    if sorted(got.measures) != sorted(expected.measures):
+        return False
+
+    def dims(q):
+        return sorted((d.field, d.grain) for d in q.dimensions)
+
+    def filters(q):
+        return sorted((f.field, f.op, repr(f.value)) for f in q.filters)
+
+    if dims(got) != dims(expected) or filters(got) != filters(expected):
+        return False
+
+    if "order_by" in raw_expected:
+        if sorted((o.field, o.dir) for o in got.order_by) != \
+           sorted((o.field, o.dir) for o in expected.order_by):
+            return False
+    if "limit" in raw_expected and got.limit != expected.limit:
+        return False
+    return True
+
+
 def normalise(rows) -> list[tuple]:
     """Result sets compare as sorted tuples of stringified values: column
     order and row order are not part of being right."""
@@ -110,14 +145,15 @@ def evaluate(model: str, fixtures: list[dict], *, with_baseline: bool) -> Tally:
 
         if got.canonical() == expected.canonical():
             t.exact += 1
-        if got.relaxed() == expected.relaxed():
+        matched_relaxed = relaxed_match(got, expected, fx["expected"])
+        if matched_relaxed:
             t.relaxed += 1
 
         want_rows = execute(expected)
         got_rows = execute(got)
         if want_rows is not None and normalise(want_rows) == normalise(got_rows):
             t.execution += 1
-        elif got.relaxed() != expected.relaxed():
+        elif not matched_relaxed:
             t.failures.append(
                 f"{fx['id']}: got {got.model_dump_json(exclude_defaults=True)}")
 
@@ -143,6 +179,11 @@ def report(results: dict[str, Tally], with_baseline: bool) -> str:
         f"{next(iter(results.values())).total} answerable questions and "
         f"{next(iter(results.values())).refusals_total} that must be refused, "
         "run against the semantic layer.",
+        "",
+        "Exact is byte-identical intent. Relaxed ignores list order and any "
+        "field the fixture left at its default. Execution compares the result "
+        "sets the two queries actually return, and is the only metric that "
+        "compares fairly against the raw text-to-SQL arm.",
         "",
         "| Model | Exact | Relaxed | Execution | Correct refusals | Retries |"
         + (" Raw text-to-SQL |" if with_baseline else ""),
