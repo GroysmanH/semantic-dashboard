@@ -30,8 +30,13 @@ of `oil` is ordered by `oil_cumulative`.
 closest attempt and set `ambiguity` explaining what is missing.
 - If a term in the question could mean two different fields, set `ambiguity` \
 with both candidates rather than guessing.
-- chart_hint is optional. Give one only if the question asks for a specific \
-chart shape ("as a pie chart", "on a map", "trend"). Otherwise leave it null.
+- chart_hint is optional and is usually null. The chart is already chosen \
+from the shape of the query, and that choice accounts for what a transform \
+means: a running total fills, a signed change gets a zero baseline, a share \
+is drawn as a percentage. Give a hint only when the question names a shape \
+in so many words — "as a pie chart", "on a map", "as stacked bars". Do not \
+give one because a shape seems suitable. "Month over month change" and \
+"running total" name no shape, and a hint there overrides a better default.
 - title is a short label for the card, in the manager's own words.
 
 Measures may be written as a plain name, or as an object with a transform:
