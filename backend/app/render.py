@@ -30,6 +30,11 @@ class Render(BaseModel):
     vega_spec: dict[str, Any] | None = None
     chart_type: str | None = None
     hint_rejected: bool = False
+    # Set only when the builder changed the data the chart draws -- a pie's
+    # collapsed tail, today. `rows` below stays the untouched result set, so
+    # the SQL panel and the row count remain literally true and the
+    # restatement explains the difference.
+    chart_rows: list[dict[str, Any]] | None = None
     restatement: str = ""
     compiled_sql: str | None = None
     rows: list[dict[str, Any]] = Field(default_factory=list)
@@ -67,7 +72,24 @@ def render(q: SemanticQuery, layer: Layer, *, chart_hint: ChartHint | None = Non
                                       execute.data_max_ts(compiled))
         from_cache = False
 
-    chart = build_spec(compiled, chart_hint, title=title)
+    # The builder now sees the rows. Three rules cannot be decided without
+    # them -- whether a pie has too many slices or a negative value, whether
+    # a third dimension is sparse enough to face, whether two measures span
+    # enough categories to want a scatter. Encoding *types* still come from
+    # the compiler, never from the values.
+    chart = build_spec(compiled, envelope["result"], chart_hint, title=title)
+
+    if chart.chart_type == "unplottable":
+        # The query is fine and the numbers are real; there is simply no
+        # honest picture of them. Breaking the card names the dimension,
+        # where silently dropping it would leave a chart that disagrees
+        # with the header above it.
+        return Render(state="broken", semantic_query=q, chart_hint=chart_hint,
+                      error=chart.error, error_reason="unplottable",
+                      compiled_sql=compiled.sql, rows=envelope["result"],
+                      row_count=envelope["row_count"],
+                      data_max_ts=envelope["data_max_ts"],
+                      fetched_at=envelope["fetched_at"], cache=envelope)
 
     return Render(
         state="ready",
@@ -76,9 +98,11 @@ def render(q: SemanticQuery, layer: Layer, *, chart_hint: ChartHint | None = Non
         vega_spec=chart.spec,
         chart_type=chart.chart_type,
         hint_rejected=chart.hint_rejected,
+        chart_rows=chart.chart_rows,
         # The sentence states meaning; the row count and freshness ride in
         # their own fields so the card header does not print both twice.
-        restatement=restate(q, compiled.entity),
+        # A collapsed tail changes the meaning, so it rides in the sentence.
+        restatement=restate(q, compiled.entity, note=chart.note),
         compiled_sql=compiled.sql,
         rows=envelope["result"],
         row_count=envelope["row_count"],

@@ -18,10 +18,10 @@ def lyr(layer):
     return l
 
 
-def spec_for(lyr, hint=None, **kw):
+def spec_for(lyr, hint=None, rows=None, **kw):
     base = {"entity": "well_interventions", "measures": ["net_gain"]}
     compiled = compile_query(SemanticQuery(**{**base, **kw}), lyr)
-    return build_spec(compiled, hint), compiled
+    return build_spec(compiled, rows, hint), compiled
 
 
 def walk(node):
