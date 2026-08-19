@@ -195,3 +195,28 @@ def test_an_invented_key_is_a_hard_failure():
 def test_there_is_no_free_text_table_slot():
     assert "table" not in SemanticQuery.model_fields
     assert "sql" not in SemanticQuery.model_fields
+
+
+def test_the_same_measure_twice_is_rejected(verified_layer):
+    """Found by a model, not by inspection: gpt-5-mini emitted `oil` twice
+    for "oil by well on a map". The query validated, executed, and drew a
+    heatmap -- because the measure count is what picks the chart, and two
+    identical columns is two measures."""
+    with pytest.raises(QueryValidationError) as e:
+        validate_query(
+            SemanticQuery.model_validate(
+                {"entity": "production", "measures": ["oil", "oil"],
+                 "dimensions": [{"field": "well_name"}]}),
+            verified_layer)
+    assert e.value.reason == "duplicate_measure"
+
+
+def test_the_same_measure_under_different_transforms_is_fine(verified_layer):
+    """`oil` and its running total are different columns and belong
+    together -- the check is on output names, not base names."""
+    validate_query(
+        SemanticQuery.model_validate(
+            {"entity": "production",
+             "measures": ["oil", {"name": "oil", "transform": "cumulative"}],
+             "dimensions": [{"field": "reading_date", "grain": "month"}]}),
+        verified_layer)

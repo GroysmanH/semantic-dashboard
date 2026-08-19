@@ -95,6 +95,19 @@ def validate_query(q: SemanticQuery, layer: Layer) -> Entity:
             "duplicate_dimension", "The same dimension is requested twice."
         )
 
+    # Duplicate measures were unchecked until a model emitted `oil` twice
+    # and turned a map into a heatmap: two identical columns change the
+    # measure count, and the measure count is what picks the chart. The
+    # query was valid, executed fine, and drew the wrong picture.
+    names = q.measure_names
+    if len(names) != len(set(names)):
+        dupe = next(n for n in names if names.count(n) > 1)
+        raise QueryValidationError(
+            "duplicate_measure",
+            f"{dupe!r} is requested twice. Asking for the same measure again "
+            f"adds a column without adding anything to it.",
+        )
+
     # 5-6. Filters: field exists, op fits the type, value shape fits the op,
     #      and any declared value set is respected.
     for f in q.filters:

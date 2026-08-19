@@ -45,8 +45,8 @@ class Settings(BaseSettings):
     # One model serves both tiers here, because the key only reaches one.
     # `hard` therefore costs nothing and changes nothing on this provider --
     # said plainly rather than papered over with a second id that 404s.
-    nvidia_model: str = "deepseek-ai/deepseek-v4-pro"
-    nvidia_model_strong: str = "deepseek-ai/deepseek-v4-pro"
+    nvidia_model: str = "deepseek-ai/deepseek-v4-flash-0731"
+    nvidia_model_strong: str = "deepseek-ai/deepseek-v4-flash-0731"
 
     # This was gemini, on the reasoning that a 360-call sweep should not
     # bill. It does not survive contact with the actual quota: Google AI

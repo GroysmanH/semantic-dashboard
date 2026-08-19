@@ -301,8 +301,12 @@ class _OpenAICompatible:
     base_url: str | None = None
     structured: str = "parse"
     default_model: str = ""
+    # Reasoning models on these endpoints draw their thinking from the same
+    # budget as the answer, so 4096 buys a cut-off response rather than a
+    # short one. Same trap as Gemini's, in a different vendor's clothes.
+    reasoning_effort: str | None = None
 
-    def __init__(self, model: str | None = None, max_tokens: int = 4096) -> None:
+    def __init__(self, model: str | None = None, max_tokens: int = 16_000) -> None:
         self.model = model or self.default_model
         self.max_tokens = max_tokens
         self.last_usage: dict[str, int] = {}
@@ -347,6 +351,11 @@ class _OpenAICompatible:
             "messages": self._messages(system, user, schema),
             "max_completion_tokens": self.max_tokens,
         }
+        if self.reasoning_effort:
+            # The grammar is small and closed; there is little here worth
+            # thinking hard about, and the budget is better spent on the
+            # answer fitting.
+            kwargs["reasoning_effort"] = self.reasoning_effort
         try:
             if self.structured == "parse":
                 response = self._client().chat.completions.parse(
@@ -355,8 +364,10 @@ class _OpenAICompatible:
                 response = self._client().chat.completions.create(
                     response_format={"type": "json_object"}, **kwargs)
         except openai.LengthFinishReasonError as exc:
-            raise LLMError("The answer was cut off before it was complete. "
-                           "Try a shorter question.") from exc
+            raise LLMError(
+                f"{self.model} used its whole token budget before finishing "
+                f"the answer. Raise max_completion_tokens, or lower the "
+                f"reasoning effort.") from exc
         except openai.APIStatusError as exc:
             raise _error_for(exc.status_code, self.model, self.key_var) from exc
         except openai.APIConnectionError as exc:
@@ -392,6 +403,7 @@ class OpenAIClient(_OpenAICompatible):
     provider: Provider = "openai"
     key_var = "OPENAI_API_KEY"
     structured = "parse"
+    reasoning_effort = "low"
 
     @property
     def default_model(self) -> str:
