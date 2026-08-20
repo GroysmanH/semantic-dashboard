@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { boardPng } from "../export/board";
+import { dashboardBlob } from "../export/json";
+import { downloadBlob, safeName, type VegaView } from "../export/png";
 import GridLayout from "react-grid-layout";
 import type { Board as BoardT, Layout, Providers } from "../api/client";
 import { api } from "../api/client";
@@ -146,6 +149,11 @@ export default function Board({
   const [canonicalLayout, setCanonicalLayout] = useState<Record<string, Layout>>({});
   const [panelHeights, setPanelHeights] = useState<PanelHeights>({});
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  // Live Vega views by card id, so a board export rasterises exactly what
+  // is on screen instead of re-rendering specs off-screen.
+  const viewsRef = useRef<Map<string, VegaView | null>>(new Map());
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [openSqlCardId, setOpenSqlCardId] = useState<string | null>(null);
   const [pendingFocusId, setPendingFocusId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -277,6 +285,28 @@ export default function Board({
   });
   const layoutLocked = Boolean(selectedEditable || openSqlEligible);
 
+  const exportImage = async () => {
+    if (!board) return;
+    setExporting(true);
+    setExportError(null);
+    try {
+      const entries = board.cards.map((card) => ({
+        card,
+        view: viewsRef.current.get(card.id) ?? null,
+      }));
+      downloadBlob(await boardPng(board.title, entries), safeName(board.title, "png"));
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const exportJson = () => {
+    if (!board) return;
+    downloadBlob(dashboardBlob(board.title, board.cards), safeName(board.title, "json"));
+  };
+
   const persist = async (next: GridItem[], preserveCanonicalSize = false) => {
     const nextMap: Record<string, Layout> = {};
     next.forEach(({ i, x, y, w, h }) => {
@@ -351,6 +381,7 @@ export default function Board({
   return (
     <div className={`board-area ${layoutLocked ? "layout-locked" : ""}`}>
       {boardError && <p className="notice broken board-error">{boardError}</p>}
+      {exportError && <p className="notice broken board-error">{exportError}</p>}
 
       {board.cards.length === 0 ? (
         <p className="eyebrow empty-board">No cards yet. Add one to ask a question.</p>
@@ -440,6 +471,7 @@ export default function Board({
                 onSqlToggle={() => toggleSql(card.id)}
                 onTransientHeight={reportTransientHeight}
                 onChanged={() => void load()}
+                onView={(view) => viewsRef.current.set(card.id, view)}
               />
             </div>
           ))}
@@ -448,17 +480,37 @@ export default function Board({
 
       {(() => {
         const action = (
-          <button
-            className="add-card-primary"
-            type="button"
-            onClick={() => void addCard()}
-            disabled={adding}
-            aria-label="Add card"
-            title="Add a new dashboard card"
-          >
-            <span className="add-card-plus" aria-hidden="true">{adding ? "…" : "+"}</span>
-            <span>{adding ? "Adding…" : "New card"}</span>
-          </button>
+          <>
+            <button
+              className="add-card-primary"
+              type="button"
+              onClick={() => void addCard()}
+              disabled={adding}
+              aria-label="Add card"
+              title="Add a new dashboard card"
+            >
+              <span className="add-card-plus" aria-hidden="true">{adding ? "…" : "+"}</span>
+              <span>{adding ? "Adding…" : "New card"}</span>
+            </button>
+            <button
+              type="button"
+              className="board-export"
+              disabled={exporting || !board?.cards.length}
+              onClick={() => void exportImage()}
+              title="Export every chart on this dashboard as one image"
+            >
+              {exporting ? "Exporting…" : "Export PNG"}
+            </button>
+            <button
+              type="button"
+              className="board-export"
+              disabled={!board?.cards.length}
+              onClick={exportJson}
+              title="Export this dashboard's definition"
+            >
+              Export JSON
+            </button>
+          </>
         );
         const host = document.getElementById("board-primary-action");
         return host ? createPortal(action, host) : action;

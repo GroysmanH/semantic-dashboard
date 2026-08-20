@@ -159,6 +159,21 @@ body {
   letter-spacing: 0.06em;
 }
 
+.board-export {
+  align-self: center;
+  padding: 0.4rem 0.6rem;
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  color: var(--ink-soft);
+}
+.board-export:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.board-export:disabled { opacity: 0.45; cursor: default; }
+
 .board-area {
   min-height: calc(100vh - 50px);
   padding: 1rem 1.25rem 5rem;

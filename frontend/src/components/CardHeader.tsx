@@ -49,6 +49,8 @@ export default function CardHeader({
   onRefresh,
   onUndo,
   onRemove,
+  onExportPng,
+  onExportCsv,
 }: {
   title: string;
   state: "empty" | "ready" | "broken";
@@ -61,6 +63,10 @@ export default function CardHeader({
   onRefresh: () => void;
   onUndo: () => void;
   onRemove: () => void;
+  /** Absent when there is nothing to export yet, so the menu never offers
+   *  an action that would do nothing. */
+  onExportPng?: () => void;
+  onExportCsv?: () => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -141,6 +147,30 @@ export default function CardHeader({
           </button>
           {menuOpen && (
             <div className="card-menu-popover" role="menu">
+              {onExportPng && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onExportPng();
+                  }}
+                >
+                  Export chart as PNG
+                </button>
+              )}
+              {onExportCsv && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    onExportCsv();
+                  }}
+                >
+                  Export rows as CSV
+                </button>
+              )}
               <button
                 type="button"
                 role="menuitem"

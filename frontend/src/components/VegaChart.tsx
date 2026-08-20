@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { VegaLite } from "react-vega";
 import { KAZAKHSTAN } from "../assets/kazakhstan";
+import type { VegaView } from "../export/png";
 
 function token(styles: CSSStyleDeclaration, name: string, fallback: string): string {
   return styles.getPropertyValue(name).trim() || fallback;
@@ -289,10 +290,14 @@ export default function VegaChart({
   spec,
   rows,
   resizing = false,
+  onView,
 }: {
   spec: Record<string, unknown>;
   rows: Record<string, unknown>[];
   resizing?: boolean;
+  /** Hands the live Vega view up so the card can rasterise it. Export is
+   *  ours rather than vega-embed's, so `actions` stays off. */
+  onView?: (view: VegaView | null) => void;
 }) {
   const config = useChartConfig();
   const { ref, bounds, liveBounds } = useChartBounds(resizing);
@@ -358,6 +363,7 @@ export default function VegaChart({
         <VegaLite
           spec={full as never}
           actions={false}
+          onNewView={(view) => onView?.(view as unknown as VegaView)}
           renderer="svg"
           style={{
             width: "100%",

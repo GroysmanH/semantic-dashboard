@@ -6,6 +6,8 @@ import CardHeader from "./CardHeader";
 import EmptyCard from "./EmptyCard";
 import SqlPanel from "./SqlPanel";
 import VegaChart from "./VegaChart";
+import { csvBlob } from "../export/csv";
+import { chartPng, download, downloadBlob, safeName, type VegaView } from "../export/png";
 
 type PanelKind = "edit" | "sql";
 
@@ -27,6 +29,7 @@ export default function Card({
   onSqlToggle,
   onTransientHeight,
   onChanged,
+  onView,
 }: {
   card: CardT;
   examples: string[];
@@ -39,11 +42,16 @@ export default function Card({
   onSqlToggle: () => void;
   onTransientHeight: (cardId: string, kind: PanelKind, height: number) => void;
   onChanged: () => void;
+  /** Lets the board composite every chart into one image. */
+  onView?: (view: VegaView | null) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [askNote, setAskNote] = useState<string | null>(null);
   const [changed, setChanged] = useState<string[]>([]);
   const editRef = useRef<HTMLDivElement>(null);
+  // The live Vega view, kept so the card can rasterise exactly what is on
+  // screen rather than re-rendering the spec somewhere off-screen.
+  const viewRef = useRef<VegaView | null>(null);
   const render = card.render;
   const state = render?.state ?? card.state;
   const unplottable = state === "broken" && render?.error_reason === "unplottable";
@@ -81,6 +89,26 @@ export default function Card({
     } finally {
       setBusy(false);
     }
+  };
+
+  const exportPng = async () => {
+    const view = viewRef.current;
+    if (!view) return;
+    setAskNote(null);
+    try {
+      download(await chartPng(view), safeName(card.title, "png"));
+    } catch (error) {
+      // Say so on the card. A download that silently does nothing reads as
+      // a broken button rather than a failure.
+      setAskNote(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const exportCsv = () => {
+    // The full result set, not chart_rows: chart_rows may be collapsed into
+    // an "Other" bucket for legibility, and a CSV is for the numbers.
+    const rows = (render?.rows ?? []) as Record<string, unknown>[];
+    downloadBlob(csvBlob(rows), safeName(card.title, "csv"));
   };
 
   const refine = async (question: string) => {
@@ -143,6 +171,8 @@ export default function Card({
       }}
     >
       <CardHeader
+        onExportPng={viewRef.current ? exportPng : undefined}
+        onExportCsv={render?.rows?.length ? exportCsv : undefined}
         title={card.title || "Untitled"}
         state={state}
         render={render}
@@ -221,6 +251,10 @@ export default function Card({
                 spec={render.vega_spec as Record<string, unknown>}
                 rows={(render.chart_rows ?? render.rows) as Record<string, unknown>[]}
                 resizing={resizing}
+                onView={(view) => {
+                  viewRef.current = view;
+                  onView?.(view);
+                }}
               />
             </div>
           </>
