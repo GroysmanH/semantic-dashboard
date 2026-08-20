@@ -21,7 +21,7 @@ class CardPatch(BaseModel):
 def _render_card(card: dict, *, force: bool = False) -> dict:
     """A card with no query yet is genuinely empty, not broken."""
     if not card.get("semantic_query"):
-        return {**card, "render": {"state": "empty"}}
+        return {**card, "can_undo": False, "render": {"state": "empty"}}
 
     q = SemanticQuery.model_validate(card["semantic_query"])
     r = render(q, LAYER, chart_hint=card.get("chart_hint"),
@@ -35,7 +35,10 @@ def _render_card(card: dict, *, force: bool = False) -> dict:
     elif r.state != card["state"]:
         store.update_card(card["id"], state=r.state)
 
-    return {**card, "state": r.state, "render": to_payload(r)}
+    # A boolean rather than the previous query itself: the frontend needs
+    # to know whether a button belongs on screen, not what is behind it.
+    return {**card, "state": r.state, "can_undo": bool(card.get("previous")),
+            "render": to_payload(r)}
 
 
 @router.get("/{card_id}")
@@ -52,6 +55,41 @@ def refresh_card(card_id: uuid.UUID):
     if card is None:
         raise HTTPException(404, "no such card")
     return _render_card(card, force=True)
+
+
+@router.post("/{card_id}/undo")
+def undo_card(card_id: uuid.UUID):
+    """One step back, per design section 9.
+
+    Refinement occasionally makes a card worse, and without this the only
+    recourse is rebuilding it -- the moment someone stops trusting the edit
+    box. One step and no more: `previous` is cleared on the way out, so the
+    button disappears rather than quietly restoring something older still.
+    """
+    card = store.get_card(card_id)
+    if card is None:
+        raise HTTPException(404, "no such card")
+
+    previous = card.get("previous")
+    if not previous:
+        raise HTTPException(409, "This card has nothing to undo.")
+
+    restored = store.update_card(
+        card_id,
+        semantic_query=previous.get("semantic_query"),
+        chart_hint=previous.get("chart_hint"),
+        vega_spec=previous.get("vega_spec"),
+        # Cleared, not carried: update_card writes NULL for None, which is
+        # what makes this one step rather than an undo stack nobody asked
+        # for.
+        previous=None,
+        # The restored query may hash to a different cache key, so let the
+        # render decide freshness rather than trusting the outgoing card's
+        # envelope.
+        cache=None,
+        state="ready",
+    )
+    return _render_card(restored)
 
 
 @router.patch("/{card_id}")

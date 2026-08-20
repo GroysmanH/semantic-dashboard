@@ -20,6 +20,7 @@ export interface Card {
   semantic_query: SemanticQuery | null;
   chart_hint: string | null;
   state: "empty" | "ready" | "broken";
+  can_undo: boolean;
   layout: Layout;
   ttl_seconds: number;
   render?: Render & { state: "empty" | "ready" | "broken" };
@@ -29,7 +30,13 @@ export interface Board { id: string; title: string; cards: Card[] }
 
 /** Three possible answers, never a confidently wrong chart: a rendered
  *  card, one clarifying question, or a refusal naming what is undefined. */
-export type AskResult = { model?: string; provider?: Provider } & (
+export type AskResult = {
+  model?: string;
+  provider?: Provider;
+  /** What a refinement moved, stated deterministically. Empty for a fresh
+   *  question, and empty for an edit that changed only the chart. */
+  changed?: string[];
+} & (
   | { state: "refused" | "clarify"; message: string }
   | ({ state: "ready" | "broken" } & Render)
 );
@@ -63,6 +70,7 @@ export const api = {
     }),
   getCard: (id: string) => request<Card>(`/cards/${id}`),
   refreshCard: (id: string) => request<Card>(`/cards/${id}/refresh`, { method: "POST" }),
+  undoCard: (id: string) => request<Card>(`/cards/${id}/undo`, { method: "POST" }),
   deleteCard: (id: string) => request<void>(`/cards/${id}`, { method: "DELETE" }),
   layer: () => request<LayerInfo>("/layer"),
   ask: (question: string, cardId: string, hard = false, provider?: Provider) =>

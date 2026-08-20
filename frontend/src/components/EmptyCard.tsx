@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Provider, Providers } from "../api/client";
+import AskBar from "./AskBar";
 
 /** Named by the model, not the vendor: "DeepSeek" is what someone asked
  *  for, even though the key and the hosting are NVIDIA's. */
@@ -27,7 +28,6 @@ export default function EmptyCard({
   note?: string | null;
   onAsk: (question: string, hard: boolean, provider: Provider) => void;
 }) {
-  const [text, setText] = useState("");
   const [hard, setHard] = useState(false);
   const [provider, setProvider] = useState<Provider>(providers.default);
 
@@ -38,24 +38,12 @@ export default function EmptyCard({
 
   return (
     <div className="empty-body">
-      <form
-        className="ask"
-        onSubmit={(e) => {
-          e.preventDefault();
-          submit(text);
-        }}
-      >
-        <input
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Ask for a chart…"
-          aria-label="Ask for a chart"
-          disabled={busy}
-        />
-        <button className="primary" type="submit" disabled={busy || !text.trim()}>
-          {busy ? "Asking…" : "Ask"}
-        </button>
-      </form>
+      <AskBar
+        placeholder="Ask for a chart…"
+        submitLabel="Ask"
+        busy={busy}
+        onSubmit={submit}
+      />
 
       {/* Only shown when there is a real choice. One key configured is not
           a decision worth putting in front of anyone. */}

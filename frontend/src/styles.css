@@ -246,6 +246,17 @@ details.sql pre {
 
 /* Escalation is a deliberate act, so it reads as a quiet aside rather than
    a default anyone clicks past. */
+/* The edit box on a card that already has an answer. Quieter than the
+   empty card's: the chart is the subject here, this is an aside. */
+.refine {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.5rem;
+}
+.refine .ask input { font-size: 11px; }
+.refine .ask input::placeholder { color: var(--ink-faint); }
+
 /* Two APIs, one row. Reads as a setting rather than a feature: the
    question is what matters, not who answers it. */
 .provider {

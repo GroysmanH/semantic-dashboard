@@ -21,6 +21,7 @@ from ..llm.client import (
 )
 from ..llm.query_step import ask as ask_model
 from ..render import render, to_payload
+from ..semantic.diff import diff_queries
 from ..semantic.query import ChartHint, SemanticQuery
 from ..store import cards as store
 
@@ -140,11 +141,24 @@ def ask(body: AskIn):
         return {"state": "clarify", "message": outcome.clarify, **who}
 
     r = render(outcome.query, LAYER, chart_hint=outcome.chart_hint,
-               title=outcome.title)
+               title=(card["title"] if current is not None and card.get("title")
+                      else outcome.title))
+
+    # What moved, stated deterministically. An edit that silently changes
+    # more than was asked for is the same failure as a chart that silently
+    # means something else.
+    changed = (diff_queries(current, outcome.query, LAYER[outcome.query.entity])
+               if current is not None and outcome.query.entity in LAYER else [])
 
     if body.card_id is not None and r.state == "ready":
+        # An edit keeps the card's name. "Break this down by well type" is
+        # an instruction, not a title, and letting it become one renames the
+        # card to the last thing anybody typed at it. The restatement
+        # already carries the full meaning.
+        title = card["title"] if current is not None and card.get("title") \
+            else outcome.title
         _save(QueryIn(semantic_query=outcome.query, chart_hint=outcome.chart_hint,
-                      title=outcome.title, card_id=body.card_id), r)
+                      title=title, card_id=body.card_id), r)
         store.update_card(body.card_id, prompt=body.question)
 
-    return {"state": r.state, **who, **to_payload(r)}
+    return {"state": r.state, **who, "changed": changed, **to_payload(r)}
