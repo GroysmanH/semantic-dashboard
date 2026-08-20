@@ -28,20 +28,57 @@ def _q(sql: str, params: tuple = (), *, fetch: str | None = None):
 
 # -- boards --------------------------------------------------------------
 
+BOARD_COLUMNS = "id, title, position, created_at, updated_at"
+
+
 def create_board(title: str) -> dict[str, Any]:
-    return _q(f"INSERT INTO app.board (id, title) VALUES (%s, %s) "
-              f"RETURNING id, title, created_at",
+    """New boards land at the end. Computing the position here rather than
+    defaulting to 0 keeps tab order stable as boards are added."""
+    return _q(f"INSERT INTO app.board (id, title, position) "
+              f"VALUES (%s, %s, (SELECT coalesce(max(position) + 1, 0) "
+              f"FROM app.board)) RETURNING {BOARD_COLUMNS}",
               (uuid.uuid4(), title), fetch="one")
 
 
 def list_boards() -> list[dict[str, Any]]:
-    return _q("SELECT id, title, created_at FROM app.board ORDER BY created_at",
-              fetch="all")
+    # created_at breaks ties so ordering is total: two boards sharing a
+    # position must still come back in the same order every time.
+    return _q(f"SELECT {BOARD_COLUMNS} FROM app.board "
+              f"ORDER BY position, created_at", fetch="all")
 
 
 def get_board(board_id: uuid.UUID) -> dict[str, Any] | None:
-    return _q("SELECT id, title, created_at FROM app.board WHERE id = %s",
+    return _q(f"SELECT {BOARD_COLUMNS} FROM app.board WHERE id = %s",
               (board_id,), fetch="one")
+
+
+def update_board(board_id: uuid.UUID, **fields: Any) -> dict[str, Any] | None:
+    """Mirrors update_card: only known columns are settable."""
+    allowed = {"title", "position"}
+
+    sets, params = [], []
+    for k, v in fields.items():
+        if k not in allowed:
+            raise ValueError(f"not a settable board column: {k}")
+        sets.append(f"{k} = %s")
+        params.append(v)
+
+    if not sets:
+        return get_board(board_id)
+
+    sets.append("updated_at = now()")
+    params.append(board_id)
+    return _q(f"UPDATE app.board SET {', '.join(sets)} WHERE id = %s "
+              f"RETURNING {BOARD_COLUMNS}", tuple(params), fetch="one")
+
+
+def reorder_boards(order: list[uuid.UUID]) -> None:
+    """Positions are rewritten from the given sequence in one transaction, so
+    a half-applied reorder cannot leave two tabs claiming the same slot."""
+    with app_pool.connection() as conn, conn.cursor() as cur:
+        for position, board_id in enumerate(order):
+            cur.execute("UPDATE app.board SET position = %s, updated_at = now() "
+                        "WHERE id = %s", (position, board_id))
 
 
 def delete_board(board_id: uuid.UUID) -> None:
@@ -108,8 +145,13 @@ def update_card(card_id: uuid.UUID, **fields: Any) -> dict[str, Any] | None:
               f"RETURNING {CARD_COLUMNS}", tuple(params), fetch="one")
 
 
-def save_layouts(layouts: dict[str, dict]) -> None:
+def save_layouts(board_id: uuid.UUID, layouts: dict[str, dict]) -> None:
+    """Scoped to one board on purpose. Keyed by card id alone, a request
+    naming board A could move a card belonging to board B; the id is a uuid
+    the caller supplies, so that is a real reachable state, not a theoretical
+    one."""
     with app_pool.connection() as conn, conn.cursor() as cur:
         for card_id, layout in layouts.items():
             cur.execute("UPDATE app.card SET layout = %s, updated_at = now() "
-                        "WHERE id = %s", (json.dumps(layout), card_id))
+                        "WHERE id = %s AND board_id = %s",
+                        (json.dumps(layout), card_id, board_id))

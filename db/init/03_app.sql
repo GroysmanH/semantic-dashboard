@@ -1,7 +1,11 @@
 CREATE TABLE app.board (
     id         uuid PRIMARY KEY,
     title      text        NOT NULL,
-    created_at timestamptz NOT NULL DEFAULT now()
+    -- Tab order. Ties break on created_at, so a board never has to be
+    -- given a position just to exist.
+    position   integer     NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL DEFAULT now(),
+    updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE app.card (
@@ -16,7 +20,9 @@ CREATE TABLE app.card (
     prompt         text,                    -- provenance only, never re-executed
     state          text NOT NULL DEFAULT 'empty'
                    CHECK (state IN ('empty', 'ready', 'broken')),
-    layout         jsonb NOT NULL DEFAULT '{"x":0,"y":0,"w":6,"h":8}'::jsonb,
+    -- No default: app.store.cards.next_slot is the single source of
+    -- truth for placement, and a second one here drifts from it.
+    layout         jsonb NOT NULL,
     cache          jsonb,
     ttl_seconds    integer NOT NULL DEFAULT 900,
     previous       jsonb,                   -- one-step undo
