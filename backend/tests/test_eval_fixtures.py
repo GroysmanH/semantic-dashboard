@@ -95,14 +95,14 @@ def test_refusal_fixtures_are_genuinely_unanswerable(fx, layer):
 
 # -- the visualisation suite ---------------------------------------------
 
-def test_the_viz_suite_is_thirty_fixtures_with_unique_ids():
+def test_the_viz_suite_is_thirty_one_fixtures_with_unique_ids():
     import yaml
 
     from eval.run_eval import SUITES, load_fixtures
 
     viz = load_fixtures(SUITES["viz"])
-    assert len(viz) == 30
-    assert len({f["id"] for f in viz}) == 30
+    assert len(viz) == 31
+    assert len({f["id"] for f in viz}) == 31
 
 
 def test_no_question_appears_in_both_suites():

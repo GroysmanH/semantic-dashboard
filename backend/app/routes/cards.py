@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ..deps import LAYER
-from ..render import render, to_payload
+from ..render import is_persistable, render, to_payload
 from ..semantic.query import ChartHint, SemanticQuery
 from ..store import cards as store
 
@@ -29,8 +29,8 @@ def _render_card(card: dict, *, force: bool = False) -> dict:
                ttl_seconds=card["ttl_seconds"], force=force)
 
     # Persist a freshly fetched result, and the state the layer says it is in.
-    if r.state == "ready" and not r.from_cache:
-        store.update_card(card["id"], cache=r.cache, state="ready",
+    if is_persistable(r) and not r.from_cache:
+        store.update_card(card["id"], cache=r.cache, state=r.state,
                           vega_spec=r.vega_spec)
     elif r.state != card["state"]:
         store.update_card(card["id"], state=r.state)

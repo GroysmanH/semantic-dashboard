@@ -30,10 +30,9 @@ class Render(BaseModel):
     vega_spec: dict[str, Any] | None = None
     chart_type: str | None = None
     hint_rejected: bool = False
-    # Set only when the builder changed the data the chart draws -- a pie's
-    # collapsed tail, today. `rows` below stays the untouched result set, so
-    # the SQL panel and the row count remain literally true and the
-    # restatement explains the difference.
+    # Set only for presentation rows: a pie's explicitly disclosed collapsed
+    # tail, or non-aggregating shared-tooltip lookup fields. `rows` below stays
+    # the untouched result set, so SQL and row-count evidence remain true.
     chart_rows: list[dict[str, Any]] | None = None
     restatement: str = ""
     compiled_sql: str | None = None
@@ -85,11 +84,14 @@ def render(q: SemanticQuery, layer: Layer, *, chart_hint: ChartHint | None = Non
         # where silently dropping it would leave a chart that disagrees
         # with the header above it.
         return Render(state="broken", semantic_query=q, chart_hint=chart_hint,
+                      hint_rejected=chart.hint_rejected,
                       error=chart.error, error_reason="unplottable",
+                      restatement=restate(q, compiled.entity),
                       compiled_sql=compiled.sql, rows=envelope["result"],
                       row_count=envelope["row_count"],
                       data_max_ts=envelope["data_max_ts"],
-                      fetched_at=envelope["fetched_at"], cache=envelope)
+                      fetched_at=envelope["fetched_at"], from_cache=from_cache,
+                      cache=envelope)
 
     return Render(
         state="ready",
@@ -116,3 +118,13 @@ def render(q: SemanticQuery, layer: Layer, *, chart_hint: ChartHint | None = Non
 def to_payload(r: Render) -> dict[str, Any]:
     """The cache envelope is server-side bookkeeping and is excluded."""
     return r.model_dump(mode="json")
+
+
+def is_persistable(r: Render) -> bool:
+    """Whether a render contains a valid query result worth saving.
+
+    An unplottable result is visually broken on purpose, but its query,
+    rows, SQL and cache are all valid. Treating it like a layer failure
+    loses the user's refinement and reruns the warehouse on every reload.
+    """
+    return r.state == "ready" or r.error_reason == "unplottable"

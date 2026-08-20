@@ -1,30 +1,77 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Card as CardT, Providers } from "../api/client";
 import { api } from "../api/client";
-import CardHeader from "./CardHeader";
 import AskBar from "./AskBar";
+import CardHeader from "./CardHeader";
 import EmptyCard from "./EmptyCard";
 import SqlPanel from "./SqlPanel";
 import VegaChart from "./VegaChart";
+
+type PanelKind = "edit" | "sql";
+
+function fallbackDescription(chartType: string | null | undefined): string {
+  if (chartType === "big_number") return "a KPI";
+  if (!chartType) return "a more suitable chart";
+  return `a ${chartType.replaceAll("_", " ")} chart`;
+}
 
 export default function Card({
   card,
   examples,
   providers,
+  selected,
+  sqlOpen,
+  resizing,
+  onSelect,
+  onMoveIntent,
+  onSqlToggle,
+  onTransientHeight,
   onChanged,
 }: {
   card: CardT;
   examples: string[];
   providers: Providers;
+  selected: boolean;
+  sqlOpen: boolean;
+  resizing: boolean;
+  onSelect: () => void;
+  onMoveIntent: () => void;
+  onSqlToggle: () => void;
+  onTransientHeight: (cardId: string, kind: PanelKind, height: number) => void;
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [askNote, setAskNote] = useState<string | null>(null);
-  // Transient on purpose: it confirms what an edit just did, and a reload
-  // is a new arrival at the card rather than a change to it.
   const [changed, setChanged] = useState<string[]>([]);
+  const editRef = useRef<HTMLDivElement>(null);
   const render = card.render;
   const state = render?.state ?? card.state;
+  const unplottable = state === "broken" && render?.error_reason === "unplottable";
+  const editable = state === "ready" || unplottable;
+  const editOpen = selected && editable;
+
+  useEffect(() => {
+    if (!editOpen || !editRef.current) {
+      onTransientHeight(card.id, "edit", 0);
+      return;
+    }
+
+    const panel = editRef.current;
+    const measure = () => {
+      const styles = getComputedStyle(panel);
+      const margin = (Number.parseFloat(styles.marginTop) || 0)
+        + (Number.parseFloat(styles.marginBottom) || 0);
+      onTransientHeight(card.id, "edit", Math.ceil(panel.getBoundingClientRect().height + margin));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [card.id, editOpen, onTransientHeight]);
+
+  useEffect(() => {
+    if (!sqlOpen) onTransientHeight(card.id, "sql", 0);
+  }, [card.id, onTransientHeight, sqlOpen]);
 
   const refresh = async () => {
     setBusy(true);
@@ -36,9 +83,6 @@ export default function Card({
     }
   };
 
-  /** An edit to the card that is already here. The question box does not
-   *  offer provider or difficulty -- those belong to a new question, not a
-   *  change to an existing answer. */
   const refine = async (question: string) => {
     setBusy(true);
     setAskNote(null);
@@ -50,8 +94,8 @@ export default function Card({
         setChanged(result.changed ?? []);
         onChanged();
       }
-    } catch (e) {
-      setAskNote(e instanceof Error ? e.message : String(e));
+    } catch (error) {
+      setAskNote(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(false);
     }
@@ -64,8 +108,8 @@ export default function Card({
     try {
       await api.undoCard(card.id);
       onChanged();
-    } catch (e) {
-      setAskNote(e instanceof Error ? e.message : String(e));
+    } catch (error) {
+      setAskNote(error instanceof Error ? error.message : String(error));
     } finally {
       setBusy(false);
     }
@@ -76,34 +120,58 @@ export default function Card({
     onChanged();
   };
 
-  return (
-    <div className={`card ${state}`}>
-      <div className="card-head">
-        <div className="card-title-row">
-          <span className="eyebrow">{state}</span>
-          <h2 className="card-title">{card.title || "Untitled"}</h2>
-          <span className="drag-handle" title="Drag to move" aria-hidden="true" />
-          {card.can_undo && (
-            <button onClick={undo} disabled={busy} title="Put back the previous version">
-              Undo
-            </button>
-          )}
-          {state === "ready" && (
-            <button onClick={refresh} disabled={busy} title="Fetch again now">
-              {busy ? "…" : "Refresh"}
-            </button>
-          )}
-          <button onClick={remove} title="Remove this card">
-            Remove
-          </button>
-        </div>
+  const reportSqlHeight = useCallback(
+    (height: number) => onTransientHeight(card.id, "sql", height),
+    [card.id, onTransientHeight],
+  );
 
-        {render && state === "ready" && (
-          <CardHeader render={render} ttlSeconds={card.ttl_seconds} />
-        )}
-      </div>
+  return (
+    <article
+      className={`card ${state} ${selected ? "selected" : ""}`}
+      tabIndex={0}
+      aria-label={`${card.title || "Untitled"} card`}
+      aria-selected={selected}
+      onClick={(event) => {
+        const target = event.target as Element;
+        if (target.closest("button, input, form, a, [data-card-control], .drag-handle")) return;
+        onSelect();
+      }}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+        event.preventDefault();
+        onSelect();
+      }}
+    >
+      <CardHeader
+        title={card.title || "Untitled"}
+        state={state}
+        render={render}
+        ttlSeconds={card.ttl_seconds}
+        canUndo={card.can_undo}
+        busy={busy}
+        onSelect={onSelect}
+        onMoveIntent={onMoveIntent}
+        onRefresh={refresh}
+        onUndo={undo}
+        onRemove={remove}
+      />
 
       <div className="card-body">
+        {editOpen && (
+          <div className="refine transient-panel" ref={editRef} data-card-control>
+            <AskBar
+              placeholder="Change this chart…"
+              submitLabel="Edit"
+              busy={busy}
+              onSubmit={refine}
+            />
+            {changed.length > 0 && (
+              <div className="notice hint">Changed: {changed.join(", ")}.</div>
+            )}
+            {askNote && <div className="notice hint">{askNote}</div>}
+          </div>
+        )}
+
         {state === "empty" && (
           <EmptyCard
             examples={examples}
@@ -120,8 +188,8 @@ export default function Card({
                 } else {
                   onChanged();
                 }
-              } catch (e) {
-                setAskNote(e instanceof Error ? e.message : String(e));
+              } catch (error) {
+                setAskNote(error instanceof Error ? error.message : String(error));
               } finally {
                 setBusy(false);
               }
@@ -130,52 +198,43 @@ export default function Card({
         )}
 
         {state === "broken" && (
-          <div className="notice broken">
-            <strong>This card no longer matches the semantic layer.</strong>
+          <div className={`notice ${unplottable ? "hint" : "broken"}`}>
+            <strong>
+              {unplottable
+                ? "This result is valid, but too dense to visualize."
+                : "This card no longer matches the semantic layer."}
+            </strong>
             <br />
             {render?.error}
-          </div>
-        )}
-
-        {state === "ready" && (
-          <div className="refine">
-            <AskBar
-              placeholder="Change this chart…"
-              submitLabel="Edit"
-              busy={busy}
-              onSubmit={refine}
-            />
-            {changed.length > 0 && (
-              <div className="notice hint">Changed: {changed.join(", ")}.</div>
-            )}
-            {askNote && <div className="notice hint">{askNote}</div>}
           </div>
         )}
 
         {state === "ready" && render?.vega_spec && (
           <>
             {render.hint_rejected && (
-              <div className="notice hint" style={{ marginBottom: "0.5rem" }}>
-                That chart type does not fit this data, so it is drawn as a{" "}
-                {render.chart_type}.
+              <div className="notice hint chart-notice">
+                Requested chart wasn’t useful for this result; showing {fallbackDescription(render.chart_type)} instead.
               </div>
             )}
-            <div className="chart-slot">
+            <div className="chart-slot" data-card-control>
               <VegaChart
                 spec={render.vega_spec as Record<string, unknown>}
-                /* chart_rows is set only when the builder changed what the
-                   chart draws -- a pie's collapsed tail. `rows` stays the
-                   untouched result set behind the SQL panel and row count,
-                   and the restatement explains the difference. */
-                rows={
-                  (render.chart_rows ?? render.rows) as Record<string, unknown>[]
-                }
+                rows={(render.chart_rows ?? render.rows) as Record<string, unknown>[]}
+                resizing={resizing}
               />
             </div>
-            {render.compiled_sql && <SqlPanel sql={render.compiled_sql} />}
           </>
         )}
+
+        {(state === "ready" || unplottable) && render?.compiled_sql && (
+          <SqlPanel
+            sql={render.compiled_sql}
+            open={sqlOpen}
+            onToggle={onSqlToggle}
+            onHeightChange={reportSqlHeight}
+          />
+        )}
       </div>
-    </div>
+    </article>
   );
 }

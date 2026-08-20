@@ -67,11 +67,31 @@ def test_scatter_takes_over_when_the_bars_would_be_unreadable(layer):
     assert r.chart_type == "scatter"
 
 
-def test_a_grouped_bar_survives_at_small_cardinality(layer):
-    """The other side of the same threshold: five regions still read best
-    as bars, so scatter must not take over."""
+def test_small_multi_measure_categories_use_separate_readable_scales(layer):
     r = drawn(layer, measures=["oil", "gas"], dimensions=[{"field": "region"}])
-    assert r.chart_type == "bar"
+    assert r.chart_type == "faceted_bar"
+    assert r.vega_spec["resolve"]["scale"]["x"] == "independent"
+
+
+@pytest.mark.parametrize("hint,body,hit_index,highlight_index", [
+    ("scatter", dict(measures=["oil", "gas"],
+                     dimensions=[{"field": "region"}]), 1, 2),
+    ("bubble", dict(measures=["oil", "gas", "water"],
+                    dimensions=[{"field": "field_name"}]), 1, 2),
+    ("map", dict(measures=["oil"],
+                 dimensions=[{"field": "well_name"}]), 2, 3),
+])
+def test_inconvenient_point_charts_have_nearest_hover_targets(
+        layer, hint, body, hit_index, highlight_index):
+    r = drawn(layer, hint, **body)
+    hit = r.vega_spec["layer"][hit_index]
+    highlight = r.vega_spec["layer"][highlight_index]
+
+    assert hit["mark"]["opacity"] == 0
+    assert hit["params"][0]["select"]["nearest"] is True
+    assert hit["params"][0]["select"]["on"] == "pointerover"
+    assert highlight["transform"] == [
+        {"filter": {"param": "hover", "empty": False}}]
 
 
 # -- pie guards ----------------------------------------------------------
@@ -89,8 +109,9 @@ def test_pie_is_refused_when_the_result_was_truncated(layer):
     a hundred means "Other" would stand for rows never fetched."""
     r = drawn(layer, "pie", measures=["oil"],
               dimensions=[{"field": "well_name"}], limit=100)
-    assert r.chart_type == "bar"
+    assert r.state == "broken"
     assert r.hint_rejected
+    assert "top 24" in r.error
 
 
 def test_pie_is_refused_on_negative_values(layer):
@@ -134,19 +155,21 @@ def test_a_collapse_never_happens_silently(layer):
 
 # -- faceting ------------------------------------------------------------
 
-def test_a_third_dimension_becomes_a_facet(layer):
+def test_a_constant_third_dimension_does_not_create_a_redundant_facet(layer):
     r = drawn(layer, measures=["gas"],
               dimensions=[{"field": "reading_date", "grain": "quarter"},
                           {"field": "region"}, {"field": "well_type"}], limit=500)
-    assert r.chart_type == "faceted_line"
-    assert "facet" in r.vega_spec
+    assert len({row["well_type"] for row in r.rows}) == 1
+    assert r.chart_type == "line"
+    assert "facet" not in r.vega_spec
 
 
-def test_three_nominal_dimensions_facet_a_bar(layer):
+def test_three_nominal_dimensions_collapse_to_a_matrix_when_one_is_constant(layer):
     r = drawn(layer, measures=["oil"],
               dimensions=[{"field": "region"}, {"field": "well_type"},
                           {"field": "field_name"}], limit=500)
-    assert r.chart_type == "faceted_bar"
+    assert len({row["well_type"] for row in r.rows}) == 1
+    assert r.chart_type == "heatmap"
 
 
 def test_a_dense_third_dimension_breaks_the_card_by_name(layer):
@@ -167,7 +190,16 @@ def test_a_dense_third_dimension_breaks_the_card_by_name(layer):
 def test_a_share_is_drawn_as_a_percentage(layer):
     r = drawn(layer, measures=[{"name": "oil", "transform": "percent_of_total"}],
               dimensions=[{"field": "region"}])
-    assert r.vega_spec["encoding"]["y"]["axis"]["format"] == ".1%"
+    assert r.vega_spec["encoding"]["x"]["axis"]["format"] == ".1%"
+    tooltip = r.vega_spec["encoding"]["tooltip"]
+    assert next(item for item in tooltip if item["type"] == "quantitative")["format"] == ".1%"
+
+
+def test_a_temporal_share_tooltip_is_formatted_as_a_percentage(layer):
+    r = drawn(layer, measures=[{"name": "oil", "transform": "percent_of_total"}],
+              dimensions=[{"field": "reading_date", "grain": "month"}])
+    tooltip = r.vega_spec["layer"][-1]["encoding"]["tooltip"]
+    assert next(item for item in tooltip if item["type"] == "quantitative")["format"] == ".1%"
 
 
 def test_a_running_total_fills(layer):
@@ -212,12 +244,13 @@ ALL_SHAPES = [
 
 
 @pytest.mark.parametrize("hint,body", ALL_SHAPES)
-def test_no_spec_ever_carries_an_aggregate_key(layer, hint, body):
+def test_no_spec_ever_carries_a_reaggregating_transform(layer, hint, body):
     """Vega-Lite's own aggregation would compute means over rows the
     compiler already summed -- a chart that quietly contradicts the header
     while every field in it is real."""
     r = drawn(layer, hint, **body)
-    assert all("aggregate" not in node for node in walk(r.vega_spec))
+    assert all("aggregate" not in node and "joinaggregate" not in node
+               and "pivot" not in node for node in walk(r.vega_spec))
 
 
 @pytest.mark.parametrize("hint,body", ALL_SHAPES)
@@ -228,11 +261,28 @@ def test_every_spec_field_is_an_output_column(layer, hint, body):
     # emitted it -- which is exactly how a map spec came to reference
     # columns that were not in the result, plotting every well at one
     # default position while this test passed.
-    allowed = set(compiled.columns) | set(compiled.geo_columns) | {"measure", "value"}
     r = drawn(layer, hint, **body)
+    presentation_fields = set((r.chart_rows or [{}])[0]) \
+        - set(compiled.columns) - set(compiled.geo_columns)
+    assert all(field.startswith("__tooltip_") for field in presentation_fields)
+    allowed = (set(compiled.columns) | set(compiled.geo_columns) |
+               {"measure", "value"} | presentation_fields)
     for node in walk(r.vega_spec):
         if "field" in node and isinstance(node["field"], str):
             assert node["field"] in allowed, node
+
+    def interaction_only(node, *, in_tooltip=False):
+        if isinstance(node, dict):
+            field = node.get("field")
+            if isinstance(field, str) and field.startswith("__tooltip_"):
+                assert in_tooltip, node
+            for key, value in node.items():
+                interaction_only(value, in_tooltip=in_tooltip or key == "tooltip")
+        elif isinstance(node, list):
+            for value in node:
+                interaction_only(value, in_tooltip=in_tooltip)
+
+    interaction_only(r.vega_spec)
 
 
 def test_a_map_plots_coordinates_the_query_actually_returned(layer):

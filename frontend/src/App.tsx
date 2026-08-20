@@ -32,6 +32,7 @@ export default function App() {
   return (
     <>
       <header className="masthead">
+        <div id="board-primary-action" className="masthead-action" />
         <h1>Semantic Dashboard</h1>
         <span className="eyebrow">grounded in a curated layer · no row data leaves the warehouse</span>
         <span className="spacer" />

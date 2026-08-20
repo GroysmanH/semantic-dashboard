@@ -29,11 +29,24 @@
 
 - id: donut_gas_by_well_type
   question: gas production split by well type, as a donut
+  # The returned production data contains one well type. A one-slice donut
+  # is a circle that encodes no comparison, so the category becomes KPI
+  # context instead.
   tags: [viz, donut]
   expected:
     entity: production
     measures: [gas]
     dimensions: [{field: well_type}]
+  hint: donut
+  expected_chart: big_number
+
+- id: donut_gas_by_region
+  question: gas production split by region, as a donut
+  tags: [viz, donut]
+  expected:
+    entity: production
+    measures: [gas]
+    dimensions: [{field: region}]
   hint: donut
   expected_chart: donut
 
@@ -70,14 +83,14 @@
 
 - id: grouped_bar_oil_gas_region
   question: oil and gas by region
-  # The other side of the same threshold: 5 categories, so the grouped bar
-  # is still the right answer and scatter must NOT take over.
+  # Five categories are readable, but oil and gas use different units. Keep
+  # their scales honest in vertically stacked small multiples.
   tags: [viz, multi-measure, default-rule]
   expected:
     entity: production
     measures: [oil, gas]
     dimensions: [{field: region}]
-  expected_chart: bar
+  expected_chart: faceted_bar
 
 - id: bubble_three_measures
   question: oil, gas and water by field as a bubble chart
@@ -125,7 +138,7 @@
     measures: [oil]
     dimensions: [{field: well_name}]
   hint: pie
-  expected_chart: bar
+  expected_chart: unplottable
   expected_hint_rejected: true
 
 # ------------------------------------------------------------ transforms
@@ -146,7 +159,7 @@
     entity: production
     measures: [gas, {name: gas, transform: previous_period}]
     dimensions: [{field: reading_date, grain: month}]
-  expected_chart: line
+  expected_chart: faceted_line
 
 - id: period_change_oil
   question: month-over-month change in oil production
@@ -248,31 +261,32 @@
     entity: production
     measures: [{name: gas, transform: ratio, per: water}]
     dimensions: [{field: well_type}]
-  expected_chart: bar
+  expected_chart: big_number
 
 # ----------------------------------------------------------------- facet
 
 - id: facet_three_dims
   question: gas by quarter, region and well type
-  # well_type has 3 distinct values, so faceting stays readable. Phrased
-  # differently from three_dimensions in fixtures.yaml on purpose -- the
-  # same question in two suites would be counted twice.
+  # The returned production data has one well type, so it is context rather
+  # than a redundant one-panel facet.
   tags: [facet, three-dim]
   expected:
     entity: production
     measures: [gas]
     dimensions: [{field: reading_date, grain: quarter}, {field: region},
                  {field: well_type}]
-  expected_chart: faceted_line
+  expected_chart: line
 
 - id: facet_nominal_bar
   question: oil by region and well type, broken out by field
+  # well_type is constant in this dataset, leaving two varying categorical
+  # dimensions; the honest compact form is a matrix.
   tags: [facet, three-dim, nominal]
   expected:
     entity: production
     measures: [oil]
     dimensions: [{field: region}, {field: well_type}, {field: field_name}]
-  expected_chart: faceted_bar
+  expected_chart: heatmap
 
 - id: facet_unplottable_cardinality
   question: oil by month, region and well

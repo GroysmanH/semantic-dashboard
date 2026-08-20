@@ -50,7 +50,7 @@ def delete_board(board_id: uuid.UUID) -> None:
 
 # -- cards ---------------------------------------------------------------
 
-CARD_W, CARD_H, COLS = 6, 9, 12
+CARD_W, CARD_H, COLS = 6, 10, 12
 
 
 def next_slot(board_id: uuid.UUID) -> dict[str, int]:

@@ -20,7 +20,7 @@ from ..llm.client import (
     make_client,
 )
 from ..llm.query_step import ask as ask_model
-from ..render import render, to_payload
+from ..render import is_persistable, render, to_payload
 from ..semantic.diff import diff_queries
 from ..semantic.query import ChartHint, SemanticQuery
 from ..store import cards as store
@@ -85,7 +85,7 @@ def run_query(body: QueryIn):
     r = render(body.semantic_query, LAYER, chart_hint=body.chart_hint,
                title=body.title)
 
-    if body.card_id is not None and r.state == "ready":
+    if body.card_id is not None and is_persistable(r):
         _save(body, r)
 
     return to_payload(r)
@@ -107,7 +107,7 @@ def _save(body: QueryIn, r) -> None:
         chart_hint=r.chart_hint,
         vega_spec=r.vega_spec,
         title=body.title or existing["title"],
-        state="ready",
+        state=r.state,
         cache=r.cache,
         previous=previous,
     )
@@ -150,7 +150,7 @@ def ask(body: AskIn):
     changed = (diff_queries(current, outcome.query, LAYER[outcome.query.entity])
                if current is not None and outcome.query.entity in LAYER else [])
 
-    if body.card_id is not None and r.state == "ready":
+    if body.card_id is not None and is_persistable(r):
         # An edit keeps the card's name. "Break this down by well type" is
         # an instruction, not a title, and letting it become one renames the
         # card to the last thing anybody typed at it. The restatement

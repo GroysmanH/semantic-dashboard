@@ -1,42 +1,27 @@
-/* Semantic Dashboard.
-   The subject is upstream well operations; the reference material is the
-   well log and the assay report -- monospaced, ruled, tabular documents
-   that state their provenance before their reading. The interface borrows
-   that order: every card says what it means before it draws anything. */
-
 :root {
-  --ground:     #edf0ec;   /* pale shale */
-  --surface:    #ffffff;
-  --surface-2:  #f6f8f5;
-  --ink:        #16201c;   /* petroleum black */
-  --ink-soft:   #5a6660;
-  --ink-faint:  #8b968f;
-  --rule:       #cdd6ce;
-  --rule-soft:  #e3e9e3;
-  --accent:     #1f6f63;   /* brine teal */
-  --signal:     #b4611a;   /* amber: attention, never alarm */
-  --alarm:      #9a3412;
-
+  color-scheme: light;
+  --ground: #edf0ec;
+  --surface: #ffffff;
+  --surface-2: #f6f8f5;
+  --surface-raised: #ffffff;
+  --ink: #16201c;
+  --ink-soft: #5a6660;
+  --ink-faint: #8b968f;
+  --rule: #cdd6ce;
+  --rule-soft: #e3e9e3;
+  --accent: #1f6f63;
+  --accent-soft: #dcece8;
+  --signal: #b4611a;
+  --alarm: #9a3412;
+  --chart-blue: #4f7fae;
+  --chart-purple: #7463a5;
+  --chart-olive: #87923d;
+  --chart-rose: #a75468;
+  --shadow: 0 8px 28px rgb(22 32 28 / 10%);
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Roboto Mono", Menlo, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
-
-  --r: 2px;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --ground:    #101512;
-    --surface:   #171e1a;
-    --surface-2: #1d2621;
-    --ink:       #e6ece7;
-    --ink-soft:  #9aa89f;
-    --ink-faint: #6d7a72;
-    --rule:      #2b352f;
-    --rule-soft: #222b26;
-    --accent:    #4bab9a;
-    --signal:    #d98a3d;
-    --alarm:     #e0674a;
-  }
+  --r: 4px;
+  --motion: 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 * { box-sizing: border-box; }
@@ -51,45 +36,50 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* -- micro labels: the vocabulary of the instrument panel -------------- */
 .eyebrow {
   font-family: var(--mono);
   font-size: 10px;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.13em;
   text-transform: uppercase;
   color: var(--ink-faint);
 }
 
-/* -- app chrome -------------------------------------------------------- */
 .masthead {
-  display: flex;
-  align-items: baseline;
-  gap: 1rem;
-  padding: 0.9rem 1.25rem;
-  background: var(--surface);
-  border-bottom: 1px solid var(--rule);
   position: sticky;
   top: 0;
   z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  min-height: 64px;
+  padding: 0.5rem 1.25rem;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  border-bottom: 1px solid var(--rule);
+  backdrop-filter: blur(12px);
 }
 .masthead h1 {
   margin: 0;
   font-family: var(--mono);
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 650;
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 .masthead .spacer { flex: 1; }
+.masthead-action { flex: none; display: flex; align-items: center; }
 
-.board-area { padding: 1rem 1.25rem 4rem; }
+.board-area {
+  min-height: calc(100vh - 50px);
+  padding: 1rem 1.25rem 5rem;
+}
+.board-error { margin: 0 0 0.75rem; }
+.empty-board { margin: 0.75rem 0; }
 
-/* -- buttons ----------------------------------------------------------- */
 button {
   font: inherit;
   font-family: var(--mono);
   font-size: 11px;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.045em;
   color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--rule);
@@ -99,219 +89,428 @@ button {
 }
 button:hover:not(:disabled) { background: var(--surface-2); border-color: var(--ink-faint); }
 button:disabled { opacity: 0.45; cursor: default; }
-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button:focus-visible,
+.card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
 button.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
 
-/* -- card -------------------------------------------------------------- */
 .card {
+  position: relative;
   height: 100%;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   background: var(--surface);
   border: 1px solid var(--rule);
   border-radius: var(--r);
-  overflow: hidden;
+  transition: border-color var(--motion), box-shadow var(--motion);
 }
-/* The rail encodes card state -- it is the one piece of colour that is
-   never decorative. */
 .card::before {
   content: "";
   position: absolute;
-  left: 0; top: 0; bottom: 0;
+  z-index: 2;
+  inset: 0 auto 0 0;
   width: 3px;
   background: var(--rule);
 }
-.card.ready::before  { background: var(--accent); }
+.card.ready::before { background: var(--accent); }
 .card.broken::before { background: var(--alarm); }
-.card.empty::before  { background: var(--rule); }
-.card { position: relative; }
+.card.selected {
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--rule));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 17%, transparent), var(--shadow);
+}
 
 .card-head {
-  padding: 0.7rem 0.85rem 0.6rem 1.1rem;
+  flex: none;
+  padding: 0.52rem 0.72rem 0.48rem 0.95rem;
   border-bottom: 1px solid var(--rule-soft);
 }
-.card-title-row { display: flex; align-items: center; gap: 0.6rem; }
-
-/* Six dots, the conventional grab affordance, drawn rather than set as a
-   glyph so it renders identically on every platform. */
-.drag-handle {
-  width: 12px;
-  height: 16px;
-  flex: none;
+.card-title-row {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+}
+.card-drag-zone {
+  min-width: 0;
+  flex: 1;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  margin: -0.2rem 0 -0.2rem -0.32rem;
+  padding: 0.2rem 0.32rem;
+  border-radius: 5px;
   cursor: grab;
-  background-image: radial-gradient(var(--ink-faint) 1px, transparent 1.2px);
+  touch-action: none;
+  transition: background-color var(--motion);
+}
+.card-drag-zone:hover {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.card-drag-zone:active { cursor: grabbing; }
+.drag-grip {
+  width: 12px;
+  height: 17px;
+  flex: none;
+  background-image: radial-gradient(var(--ink-faint) 1px, transparent 1.25px);
   background-size: 5px 5px;
   background-position: 1px 3px;
-  opacity: 0.7;
+  opacity: 0.68;
 }
-.drag-handle:hover { opacity: 1; background-image: radial-gradient(var(--accent) 1px, transparent 1.2px); }
-.drag-handle:active { cursor: grabbing; }
+.card-drag-zone:hover .drag-grip {
+  opacity: 1;
+  background-image: radial-gradient(var(--accent) 1px, transparent 1.25px);
+}
 .card-title {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  flex: 1;
   min-width: 0;
+  flex: 1;
+  margin: 0;
   overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-/* The signature: the restatement sits above the chart, in the data face,
-   at near-equal weight to the title. The manager reads what the number
-   means before seeing the number. */
-.restatement {
+.card-state {
+  flex: none;
   font-family: var(--mono);
-  font-size: 11.5px;
-  line-height: 1.55;
-  color: var(--ink);
-  margin: 0.5rem 0 0;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.card-state.broken { color: var(--alarm); }
+
+.icon-button {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  color: var(--ink-soft);
+  background: transparent;
+  border-color: transparent;
+}
+.icon-button:hover:not(:disabled) { color: var(--accent); background: var(--surface-2); border-color: var(--rule-soft); }
+.icon-button svg { width: 16px; height: 16px; fill: currentColor; }
+.spin { animation: spin 900ms linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.card-menu { position: relative; flex: none; }
+.card-menu-popover {
+  position: absolute;
+  z-index: 12;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 132px;
+  padding: 4px;
+  background: var(--surface-raised);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  animation: pop-in 120ms ease-out;
+}
+.card-menu-popover button {
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+  color: var(--alarm);
+  background: transparent;
+  border-color: transparent;
 }
 
+.trust-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.18rem;
+}
+.restatement {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .facts {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0 1.1rem;
-  margin-top: 0.45rem;
+  gap: 0.6rem;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  white-space: nowrap;
 }
-.fact { font-family: var(--mono); font-size: 10px; color: var(--ink-faint); }
-.fact b { font-weight: 600; color: var(--ink-soft); }
-.fact.stale b { color: var(--signal); }
+.facts span + span::before { content: "·"; margin-right: 0.6rem; color: var(--rule); }
+.facts .stale { color: var(--signal); }
 
 .card-body {
   flex: 1;
   min-height: 0;
-  padding: 0.6rem 0.85rem 0.7rem 1.1rem;
+  padding: 0.55rem 0.72rem 0.62rem 0.95rem;
   display: flex;
   flex-direction: column;
 }
-/* The chart takes the slack so the SQL summary stays visible at the foot of
-   the card. Available without hunting is the whole point of a collapsed
-   panel; pushed below the fold it may as well not be there. */
-.chart-slot { flex: 1; min-height: 120px; }
+.chart-slot {
+  flex: 1;
+  min-height: 120px;
+  overflow: hidden;
+  isolation: isolate;
+}
+.chart-shell,
+.chart-render-frame,
+.chart-render-frame > div,
+.chart-shell .vega-embed,
+.chart-shell .vega-embed > div { width: 100%; height: 100%; }
+.chart-render-frame { transform-origin: top left; }
+.chart-shell.resizing-preview { overflow: hidden; }
+.chart-shell.resizing-preview .chart-render-frame { will-change: transform; }
+.chart-shell.compact {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.chart-shell.compact > .chart-render-frame,
+.chart-shell.compact .chart-render-frame > div,
+.chart-shell.compact .vega-embed,
+.chart-shell.compact .vega-embed > div { height: auto; }
+.chart-shell.scrollable {
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-color: var(--rule) transparent;
+  scrollbar-width: thin;
+}
+.chart-shell.scrollable > .chart-render-frame,
+.chart-shell.scrollable .chart-render-frame > div,
+.chart-shell.scrollable .vega-embed,
+.chart-shell.scrollable .vega-embed > div { height: auto; }
+.chart-shell svg { display: block; }
+.chart-notice {
+  align-self: flex-start;
+  max-width: 100%;
+  margin-bottom: 0.35rem;
+  padding: 0.2rem 0.45rem;
+  border-width: 0 0 0 2px;
+  border-radius: 0;
+  font-size: 9.5px;
+  line-height: 1.35;
+}
+
+.transient-panel { animation: panel-in var(--motion); }
+@keyframes panel-in {
+  from { opacity: 0; transform: translateY(-5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes pop-in {
+  from { opacity: 0; transform: translateY(-3px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
 
 .notice {
   font-family: var(--mono);
   font-size: 11px;
   padding: 0.55rem 0.7rem;
-  border-radius: var(--r);
   border: 1px solid;
+  border-radius: var(--r);
 }
 .notice.broken { color: var(--alarm); border-color: var(--alarm); background: color-mix(in srgb, var(--alarm) 7%, transparent); }
-.notice.hint   { color: var(--signal); border-color: var(--signal); background: color-mix(in srgb, var(--signal) 8%, transparent); }
+.notice.hint { color: var(--signal); border-color: var(--signal); background: color-mix(in srgb, var(--signal) 8%, transparent); }
 
-/* -- SQL panel --------------------------------------------------------- */
-details.sql { flex: none; margin-top: 0.6rem; border-top: 1px solid var(--rule-soft); padding-top: 0.5rem; }
-details.sql summary { cursor: pointer; list-style: none; }
-details.sql summary::-webkit-details-marker { display: none; }
-details.sql summary::before { content: "▸ "; color: var(--ink-faint); }
-details.sql[open] summary::before { content: "▾ "; }
-details.sql pre {
-  max-height: 30vh;
-  overflow-y: auto;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  line-height: 1.6;
+.sql {
+  flex: none;
+  margin-top: 0.5rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--rule-soft);
+}
+.sql-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0.15rem 0;
+  color: var(--ink-faint);
+  background: transparent;
+  border: 0;
+  text-align: left;
+}
+.sql-toggle:hover:not(:disabled) { color: var(--accent); background: transparent; border-color: transparent; }
+.sql-chevron {
+  display: inline-block;
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1;
+  transform: rotate(0deg);
+  transition: transform var(--motion);
+}
+.sql.open .sql-chevron { transform: rotate(90deg); }
+.sql-drawer { padding-top: 0.45rem; animation: panel-in var(--motion); }
+.sql pre {
+  max-height: min(360px, 40vh);
+  margin: 0;
+  overflow: auto;
+  padding: 0.65rem 0.72rem;
   color: var(--ink-soft);
   background: var(--surface-2);
   border: 1px solid var(--rule-soft);
   border-radius: var(--r);
-  padding: 0.6rem;
-  margin: 0.5rem 0 0;
-  overflow-x: auto;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
-/* -- empty card -------------------------------------------------------- */
-.empty-body { display: flex; flex-direction: column; gap: 0.7rem; height: 100%; }
-.ask {
-  display: flex;
-  gap: 0.4rem;
-}
+.empty-body { height: 100%; display: flex; flex-direction: column; gap: 0.7rem; }
+.ask { display: flex; gap: 0.4rem; }
 .ask input {
-  flex: 1;
   min-width: 0;
-  font: inherit;
-  font-size: 13px;
+  flex: 1;
+  padding: 0.45rem 0.6rem;
   color: var(--ink);
   background: var(--surface-2);
   border: 1px solid var(--rule);
   border-radius: var(--r);
-  padding: 0.45rem 0.6rem;
+  font: inherit;
+  font-size: 13px;
 }
 .ask input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
-
-/* Escalation is a deliberate act, so it reads as a quiet aside rather than
-   a default anyone clicks past. */
-/* The edit box on a card that already has an answer. Quieter than the
-   empty card's: the chart is the subject here, this is an aside. */
 .refine {
+  flex: none;
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
   margin-bottom: 0.5rem;
+  padding: 0.5rem;
+  background: color-mix(in srgb, var(--accent-soft) 45%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--rule-soft));
+  border-radius: var(--r);
 }
-.refine .ask input { font-size: 11px; }
+.refine .ask input { font-size: 11px; background: var(--surface); }
 .refine .ask input::placeholder { color: var(--ink-faint); }
 
-/* Two APIs, one row. Reads as a setting rather than a feature: the
-   question is what matters, not who answers it. */
-.provider {
-  display: flex;
-  align-items: center;
-  gap: 0.3rem;
-  margin-bottom: 0.1rem;
-}
+.provider { display: flex; align-items: center; gap: 0.3rem; margin-bottom: 0.1rem; }
 .provider .eyebrow { margin-right: 0.15rem; }
 .provider button {
-  border: 1px solid var(--rule);
-  background: none;
+  padding: 0.12rem 0.5rem;
   color: var(--ink-faint);
+  background: none;
+  border: 1px solid var(--rule);
   font-family: var(--mono);
   font-size: 10.5px;
   letter-spacing: 0.02em;
-  padding: 0.12rem 0.5rem;
 }
 .provider button:hover:not(:disabled) { color: var(--ink-soft); border-color: var(--ink-faint); }
-.provider button.on {
-  color: var(--signal);
-  border-color: var(--signal);
-  background: none;
-}
-
+.provider button.on { color: var(--signal); border-color: var(--signal); background: none; }
 .harder {
   display: flex;
   align-items: center;
   gap: 0.4rem;
+  color: var(--ink-faint);
   font-family: var(--mono);
   font-size: 10.5px;
-  color: var(--ink-faint);
   cursor: pointer;
   user-select: none;
 }
 .harder:hover { color: var(--ink-soft); }
-.harder input { accent-color: var(--accent); margin: 0; }
+.harder input { margin: 0; accent-color: var(--accent); }
 .harder:has(input:checked) { color: var(--signal); }
-
 .examples { display: flex; flex-direction: column; gap: 0.3rem; }
 .examples button {
-  text-align: left;
-  border: none;
-  border-left: 1px solid var(--rule);
-  background: none;
   padding: 0.2rem 0 0.2rem 0.6rem;
   color: var(--ink-soft);
+  background: none;
+  border: 0;
+  border-left: 1px solid var(--rule);
+  text-align: left;
   font-size: 11px;
 }
-.examples button:hover { color: var(--accent); border-left-color: var(--accent); background: none; }
+.examples button:hover { color: var(--accent); background: none; border-left-color: var(--accent); }
 
-/* -- grid -------------------------------------------------------------- */
-.react-grid-item.react-grid-placeholder { background: var(--accent); opacity: 0.12; border-radius: var(--r); }
-.react-resizable-handle { opacity: 0.4; }
+.add-card-primary {
+  min-width: 126px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  padding: 0 1rem 0 0.82rem;
+  color: #fff;
+  background: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 80%, black);
+  border-radius: 999px;
+  box-shadow: 0 5px 16px color-mix(in srgb, var(--accent) 24%, transparent);
+  font-size: 11.5px;
+  font-weight: 650;
+  line-height: 1;
+  transition: transform var(--motion), box-shadow var(--motion), filter var(--motion);
+}
+.add-card-plus {
+  font-family: var(--sans);
+  font-size: 23px;
+  font-weight: 350;
+  line-height: 1;
+}
+.add-card-primary:hover:not(:disabled) {
+  background: var(--accent);
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+  box-shadow: 0 7px 19px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.react-grid-item {
+  transition: transform var(--motion), width var(--motion), height var(--motion);
+}
+.react-grid-item.cssTransforms { transition-property: transform, width, height; }
+.react-grid-item.react-draggable-dragging,
+.react-grid-item.resizing { transition: none; }
+.react-grid-item.react-draggable-dragging { z-index: 20; }
+.react-grid-item.react-draggable-dragging .card {
+  border-color: color-mix(in srgb, var(--accent) 56%, var(--rule));
+  box-shadow: 0 16px 36px color-mix(in srgb, var(--ink) 18%, transparent);
+}
+.react-grid-item.react-grid-placeholder {
+  background: color-mix(in srgb, var(--accent) 13%, var(--surface));
+  border: 1px dashed color-mix(in srgb, var(--accent) 72%, var(--rule));
+  border-radius: var(--r);
+  opacity: 1;
+}
+.react-resizable-handle { opacity: 0.35; }
+.layout-locked .react-resizable-handle { display: none; }
+
+.vg-tooltip {
+  max-width: 320px !important;
+  padding: 8px 10px !important;
+  color: var(--ink) !important;
+  background: var(--surface-raised) !important;
+  border: 1px solid var(--rule) !important;
+  border-radius: 5px !important;
+  box-shadow: var(--shadow) !important;
+  font-family: var(--mono) !important;
+  font-size: 11px !important;
+}
+
+@media (max-width: 900px) {
+  .masthead > .eyebrow { display: none; }
+  .facts span:nth-child(2) { display: none; }
+}
 
 @media (prefers-reduced-motion: reduce) {
-  * { animation: none !important; transition: none !important; }
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

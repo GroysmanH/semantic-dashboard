@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "test": "vitest run",
     "preview": "vite preview",
     "gen:types": "json2ts -i src/api/schema.json -o src/api/types.gen.ts"
   },
@@ -17,12 +18,17 @@
     "vega-lite": "^5.21.0"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.5",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@types/react-grid-layout": "^1.3.5",
     "@vitejs/plugin-react": "^4.3.3",
+    "jsdom": "^25.0.1",
     "json-schema-to-typescript": "^15.0.3",
     "typescript": "^5.6.3",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "vitest": "^2.1.9"
   }
 }
