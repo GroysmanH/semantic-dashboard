@@ -255,3 +255,45 @@
     measures: [oil]
     dimensions: [{field: reading_date, grain: month}, {field: region},
                  {field: well_type}]
+
+# -- relative dates -------------------------------------------------------
+# The year is substituted at load, because a fixture asserting a literal
+# year is correct until January and then fails on the calendar rather than
+# on a regression. These cover the phrasings where the *model* has to pick
+# a year: the existing last_n_days fixtures never do, which is how "oil
+# last year" could resolve to 2023 with the suite entirely green.
+
+- id: oil_last_year
+  question: oil production last year
+  tags: [relative-date, filter]
+  expected:
+    entity: production
+    measures: [oil]
+    filters: [{field: reading_date, op: in_year, value: "{{last_year}}"}]
+
+- id: gas_this_year_by_month
+  question: gas production by month so far this year
+  tags: [relative-date, date-grain]
+  expected:
+    entity: production
+    measures: [gas]
+    dimensions: [{field: reading_date, grain: month}]
+    filters: [{field: reading_date, op: in_year, value: "{{this_year}}"}]
+
+- id: oil_by_month_last_90
+  question: oil by month over the last 90 days
+  tags: [relative-date, date-grain]
+  expected:
+    entity: production
+    measures: [oil]
+    dimensions: [{field: reading_date, grain: month}]
+    filters: [{field: reading_date, op: last_n_days, value: 90}]
+
+- id: downtime_by_region_last_year
+  question: downtime by region last year
+  tags: [relative-date, nominal]
+  expected:
+    entity: production
+    measures: [downtime]
+    dimensions: [{field: region}]
+    filters: [{field: reading_date, op: in_year, value: "{{last_year}}"}]

@@ -29,6 +29,7 @@ import argparse
 import sys
 import time
 from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
@@ -66,6 +67,23 @@ MODELS = {
 # the quota as accuracy.
 RETRIES = 5
 BACKOFF = 20            # seconds, doubled each attempt
+
+
+def load_fixtures(path: Path, today: date | None = None) -> list[dict]:
+    """Fixtures with relative dates resolved at load.
+
+    A fixture asserting `in_year: 2025` is correct until January and then
+    fails for reasons that have nothing to do with the code. Substituting
+    here keeps the suite failing on regressions rather than on the calendar.
+    """
+    today = today or date.today()
+    text = path.read_text()
+    for token, value in (("this_year", today.year), ("last_year", today.year - 1)):
+        # The quotes go too, so the substituted value is a YAML integer.
+        # They are there in the source so the file stays valid YAML for any
+        # reader -- an editor, a linter, or a test that forgets this loader.
+        text = text.replace(f'"{{{{{token}}}}}"', str(value))
+    return yaml.safe_load(text)
 
 
 def patiently(call, what: str):
@@ -386,8 +404,7 @@ def main() -> int:
               else MODELS[args.provider])
 
     chosen = list(SUITES) if args.suite == "both" else [args.suite]
-    fixtures = [fx for name in chosen
-                for fx in yaml.safe_load(SUITES[name].read_text())]
+    fixtures = [fx for name in chosen for fx in load_fixtures(SUITES[name])]
     if args.limit:
         fixtures = fixtures[:args.limit]
 

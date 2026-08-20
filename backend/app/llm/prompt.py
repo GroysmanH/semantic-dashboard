@@ -23,6 +23,10 @@ with few distinct values.
 - Give a date dimension a grain from its listed grains.
 - Filters may only use a listed field, and where a field lists its values, \
 only those values.
+- The current date is supplied with each question. Resolve every relative \
+period against it and never guess a year: "last year" and "this year" are \
+in_year with the resolved year, "the last 30 days" is last_n_days, and an \
+explicit span is between.
 - order_by may only name a measure or dimension you selected. A transformed \
 measure is named by its output column, not its base name — a running total \
 of `oil` is ordered by `oil_cumulative`.

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date
 
 from pydantic import BaseModel, ConfigDict
 
@@ -84,17 +85,30 @@ def deterministic_ambiguity(question: str, entity_name: str,
 
 def ask(question: str, layer: Layer, client: LLMClient,
         synonyms: dict[str, dict[str, list[str]]] | None = None,
-        current: SemanticQuery | None = None) -> AskOutcome:
+        current: SemanticQuery | None = None,
+        today: date | None = None) -> AskOutcome:
     """`current` carries an existing card's query for refinement: the card's
-    state is the context, which sidesteps multi-turn drift entirely."""
+    state is the context, which sidesteps multi-turn drift entirely.
+
+    `today` is stated to the model rather than assumed by it. Without an
+    anchor a model resolves "last year" against its training cutoff, which
+    is a chart about the wrong period with nothing on it to say so.
+    """
     system = build_system_prompt(layer)
 
-    user = question
+    # Deliberately in the question, not the system prompt. The system block
+    # sits behind a cache breakpoint; a date in there would invalidate that
+    # cache once a day for every user, forever. After the breakpoint it
+    # costs nothing, and the layer prompt stays byte-stable.
+    today = today or date.today()
+
+    body = question
     if current is not None:
-        user = (f"The card currently shows this semantic query:\n"
+        body = (f"The card currently shows this semantic query:\n"
                 f"{current.model_dump_json(indent=2)}\n\n"
                 f"Change it as follows, returning the complete replacement "
                 f"query: {question}")
+    user = f"Today is {today:%d %B %Y}.\n\n{body}"
 
     attempts = 0
     last_error: str | None = None

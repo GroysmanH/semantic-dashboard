@@ -285,3 +285,48 @@ def test_prompt_contains_no_geo_columns():
     assert LAYER["production"].geo is not None, "the guard needs something to guard"
     for leak in ("latitude", "longitude", "wells.latitude", "wells.longitude"):
         assert leak not in prompt
+
+
+# -- date grounding -------------------------------------------------------
+
+def test_the_system_prompt_carries_no_date():
+    """The caching guarantee. The system block sits behind a cache
+    breakpoint, so a date in it would invalidate that cache once a day for
+    every user, forever -- and the failure would be a bill, not an error."""
+    import re
+
+    from app.deps import LAYER
+    from app.llm.prompt import build_system_prompt
+
+    prompt = build_system_prompt(LAYER)
+    assert build_system_prompt(LAYER) == prompt
+    assert not re.search(r"\b(19|20)\d{2}\b", prompt)
+
+
+def test_the_question_carries_todays_date(verified):
+    """Without an anchor a model resolves "last year" against its training
+    cutoff. Gemini answered 2023 for a question whose answer was 2025."""
+    from datetime import date
+
+    client = FakeClient(response())
+    ask("oil last year", verified, client, today=date(2026, 8, 19))
+
+    system, user = client.calls[0][0], client.calls[0][1]
+    assert "19 August 2026" in user
+    assert "19 August 2026" not in system
+
+
+def test_a_refinement_still_gets_the_date_and_the_card(verified):
+    """Both contexts, once each -- an edit needs to know what "this year"
+    means just as much as a fresh question does."""
+    from datetime import date
+
+    client = FakeClient(response())
+    current = SemanticQuery.model_validate(
+        {"entity": "production", "measures": ["oil"]})
+    ask("filter it to this year", verified, client, current=current,
+        today=date(2026, 8, 19))
+
+    user = client.calls[0][1]
+    assert user.count("19 August 2026") == 1
+    assert "The card currently shows" in user

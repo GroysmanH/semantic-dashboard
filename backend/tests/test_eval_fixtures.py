@@ -12,16 +12,23 @@ import yaml
 from app.semantic.compile import compile_query
 from app.semantic.query import SemanticQuery
 from app.semantic.validate import QueryValidationError, validate_query
+from eval.run_eval import load_fixtures
 
-FIXTURES = yaml.safe_load(
-    (Path(__file__).resolve().parents[1] / "eval" / "fixtures.yaml").read_text())
+# Through the loader, not yaml directly: relative-date fixtures carry a
+# year placeholder, and reading the file raw would check a query nobody
+# runs.
+FIXTURES = load_fixtures(
+    Path(__file__).resolve().parents[1] / "eval" / "fixtures.yaml")
 
 ANSWERABLE = [f for f in FIXTURES if f.get("expect") != "refused"]
 REFUSALS = [f for f in FIXTURES if f.get("expect") == "refused"]
 
 
-def test_there_are_thirty_fixtures():
-    assert len(FIXTURES) == 30
+def test_the_query_suite_is_the_size_it_claims_to_be():
+    """Thirty when written, thirty-four after the relative-date questions
+    the suite could not previously see. The number is asserted so a fixture
+    cannot go missing quietly, not because thirty is sacred."""
+    assert len(FIXTURES) == 34
 
 
 def test_ids_are_unique():
@@ -91,9 +98,9 @@ def test_refusal_fixtures_are_genuinely_unanswerable(fx, layer):
 def test_the_viz_suite_is_thirty_fixtures_with_unique_ids():
     import yaml
 
-    from eval.run_eval import SUITES
+    from eval.run_eval import SUITES, load_fixtures
 
-    viz = yaml.safe_load(SUITES["viz"].read_text())
+    viz = load_fixtures(SUITES["viz"])
     assert len(viz) == 30
     assert len({f["id"] for f in viz}) == 30
 
@@ -102,10 +109,10 @@ def test_no_question_appears_in_both_suites():
     """The same question scored twice is the same evidence counted twice."""
     import yaml
 
-    from eval.run_eval import SUITES
+    from eval.run_eval import SUITES, load_fixtures
 
-    a = {f["question"] for f in yaml.safe_load(SUITES["queries"].read_text())}
-    b = {f["question"] for f in yaml.safe_load(SUITES["viz"].read_text())}
+    a = {f["question"] for f in load_fixtures(SUITES["queries"])}
+    b = {f["question"] for f in load_fixtures(SUITES["viz"])}
     assert not (a & b)
 
 
@@ -114,9 +121,9 @@ def test_every_answerable_viz_fixture_declares_a_chart():
     the suite exists for."""
     import yaml
 
-    from eval.run_eval import SUITES
+    from eval.run_eval import SUITES, load_fixtures
 
-    for fx in yaml.safe_load(SUITES["viz"].read_text()):
+    for fx in load_fixtures(SUITES["viz"]):
         if fx.get("expect") == "refused":
             assert "expected_chart" not in fx
         else:
@@ -129,9 +136,9 @@ def test_every_expected_viz_query_is_valid_and_runs(layer, warehouse_conn):
 
     from app.semantic.compile import compile_query
     from app.semantic.query import SemanticQuery
-    from eval.run_eval import SUITES
+    from eval.run_eval import SUITES, load_fixtures
 
-    for fx in yaml.safe_load(SUITES["viz"].read_text()):
+    for fx in load_fixtures(SUITES["viz"]):
         if fx.get("expect") == "refused":
             continue
         compiled = compile_query(SemanticQuery.model_validate(fx["expected"]),
@@ -146,10 +153,10 @@ def test_the_new_chart_vocabulary_is_covered(layer):
     fixture, or the suite is not exercising what it was written for."""
     import yaml
 
-    from eval.run_eval import SUITES
+    from eval.run_eval import SUITES, load_fixtures
 
     charts = {fx["expected_chart"]
-              for fx in yaml.safe_load(SUITES["viz"].read_text())
+              for fx in load_fixtures(SUITES["viz"])
               if "expected_chart" in fx}
     assert {"pie", "donut", "stacked_bar", "normalised_bar", "scatter",
             "bubble", "map", "faceted_line", "faceted_bar",
@@ -175,10 +182,10 @@ def test_the_builder_agrees_with_what_each_question_deserves(layer):
 
     from app.render import render
     from app.semantic.query import SemanticQuery
-    from eval.run_eval import SUITES
+    from eval.run_eval import SUITES, load_fixtures
 
     disagreements = []
-    for fx in yaml.safe_load(SUITES["viz"].read_text()):
+    for fx in load_fixtures(SUITES["viz"]):
         if fx.get("expect") == "refused":
             continue
         drawn = render(SemanticQuery.model_validate(fx["expected"]), layer,
@@ -191,3 +198,45 @@ def test_the_builder_agrees_with_what_each_question_deserves(layer):
             assert drawn.hint_rejected == fx["expected_hint_rejected"], fx["id"]
 
     assert not disagreements, "\n".join(disagreements)
+
+
+def test_relative_date_fixtures_resolve_to_real_years():
+    """A fixture asserting a literal year is right until January. These are
+    substituted at load, so the suite keeps failing on regressions rather
+    than on the calendar."""
+    from datetime import date
+
+    from eval.run_eval import SUITES, load_fixtures
+
+    fx = {f["id"]: f for f in load_fixtures(SUITES["queries"], date(2026, 8, 20))}
+    assert fx["oil_last_year"]["expected"]["filters"][0]["value"] == 2025
+    assert fx["gas_this_year_by_month"]["expected"]["filters"][0]["value"] == 2026
+
+    # And a year later, without touching the file.
+    later = {f["id"]: f for f in load_fixtures(SUITES["queries"], date(2027, 3, 1))}
+    assert later["oil_last_year"]["expected"]["filters"][0]["value"] == 2026
+
+
+def test_no_placeholder_survives_loading():
+    import json
+
+    from eval.run_eval import SUITES, load_fixtures
+
+    for name in SUITES:
+        assert "{{" not in json.dumps(load_fixtures(SUITES[name])), name
+
+
+def test_the_model_is_the_one_that_has_to_pick_a_year():
+    """The gap these were written for: every relative-date fixture used an
+    operator the compiler resolves in SQL, so nothing exercised the case
+    where the *model* must name a year -- which is exactly where it was
+    reaching for its training cutoff."""
+    from eval.run_eval import SUITES, load_fixtures
+
+    picks_a_year = [
+        f["id"] for f in load_fixtures(SUITES["queries"])
+        if any(flt.get("op") == "in_year" for flt in
+               f.get("expected", {}).get("filters", []))
+        and "year" in f["question"].lower()
+    ]
+    assert len(picks_a_year) >= 3, picks_a_year
