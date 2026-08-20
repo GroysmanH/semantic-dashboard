@@ -43,3 +43,29 @@ def pools():
     open_pools()
     yield
     close_pools()
+
+
+@pytest.fixture(autouse=True)
+def no_leftover_boards(pools):
+    """Delete boards a test created, so the suite does not accumulate them.
+
+    Route tests create boards through the API and nothing ever removed them:
+    a few hundred runs had left 217 behind. That was invisible while the UI
+    showed a single implicit board, and became the entire interface the
+    moment boards were rendered as tabs. Cards cascade, so removing the
+    board is enough.
+    """
+    from app.store import cards as store
+
+    try:
+        before = {b["id"] for b in store.list_boards()}
+    except Exception:
+        # Tests that do not need a database must not fail on its absence.
+        yield
+        return
+
+    yield
+
+    for board in store.list_boards():
+        if board["id"] not in before:
+            store.delete_board(board["id"])

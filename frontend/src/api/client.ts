@@ -26,7 +26,13 @@ export interface Card {
   render?: Render & { state: "empty" | "ready" | "broken" };
 }
 
-export interface Board { id: string; title: string; cards: Card[] }
+export interface BoardSummary {
+  id: string;
+  title: string;
+  position: number;
+}
+
+export interface Board extends BoardSummary { cards: Card[] }
 
 /** Three possible answers, never a confidently wrong chart: a rendered
  *  card, one clarifying question, or a refusal naming what is undefined. */
@@ -58,10 +64,18 @@ export interface LayerInfo {
 }
 
 export const api = {
-  listBoards: () => request<{ id: string; title: string }[]>("/boards"),
+  listBoards: () => request<BoardSummary[]>("/boards"),
   createBoard: (title: string) =>
-    request<{ id: string }>("/boards", { method: "POST", body: JSON.stringify({ title }) }),
+    request<BoardSummary>("/boards", { method: "POST", body: JSON.stringify({ title }) }),
   getBoard: (id: string) => request<Board>(`/boards/${id}`),
+  updateBoard: (id: string, fields: { title?: string; position?: number }) =>
+    request<BoardSummary>(`/boards/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(fields),
+    }),
+  reorderBoards: (order: string[]) =>
+    request<void>("/boards/reorder", { method: "POST", body: JSON.stringify({ order }) }),
+  deleteBoard: (id: string) => request<void>(`/boards/${id}`, { method: "DELETE" }),
   addCard: (boardId: string) => request<Card>(`/boards/${boardId}/cards`, { method: "POST" }),
   saveLayout: (boardId: string, layouts: Record<string, Layout>) =>
     request<void>(`/boards/${boardId}/layout`, {
@@ -72,6 +86,8 @@ export const api = {
   refreshCard: (id: string) => request<Card>(`/cards/${id}/refresh`, { method: "POST" }),
   undoCard: (id: string) => request<Card>(`/cards/${id}/undo`, { method: "POST" }),
   deleteCard: (id: string) => request<void>(`/cards/${id}`, { method: "DELETE" }),
+  patchCard: (id: string, fields: { title?: string; ttl_seconds?: number }) =>
+    request<Card>(`/cards/${id}`, { method: "PATCH", body: JSON.stringify(fields) }),
   layer: () => request<LayerInfo>("/layer"),
   ask: (question: string, cardId: string, hard = false, provider?: Provider) =>
     request<AskResult>("/ask", {

@@ -68,6 +68,97 @@ body {
 .masthead .spacer { flex: 1; }
 .masthead-action { flex: none; display: flex; align-items: center; }
 
+/* -- tabs ------------------------------------------------------------- */
+
+.tabbar {
+  position: sticky;
+  top: 64px;
+  z-index: 19;
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+  padding: 0 1.25rem;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  border-bottom: 1px solid var(--rule);
+  backdrop-filter: blur(12px);
+}
+.tabbar-list {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0 0.15rem 0 0;
+  /* The active tab is marked the way a ready card is: a rule in the accent,
+     here along the bottom edge it shares with the board. */
+  border-bottom: 2px solid transparent;
+}
+.tab-active { border-bottom-color: var(--accent); }
+
+.tab-label,
+.tab-close,
+.tab-add {
+  background: none;
+  border: none;
+  border-radius: var(--r);
+  color: var(--ink-faint);
+  cursor: pointer;
+  transition: color var(--motion), background var(--motion);
+}
+.tab-label {
+  max-width: 15rem;
+  overflow: hidden;
+  padding: 0.7rem 0.5rem;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.tab-active .tab-label { color: var(--ink); }
+.tab-label:hover { color: var(--ink); }
+
+.tab-close {
+  padding: 0.1rem 0.3rem;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0;
+}
+.tab:hover .tab-close,
+.tab-close:focus-visible { opacity: 1; }
+.tab-close:hover { color: var(--alarm); }
+.tab-close:disabled { display: none; }
+
+.tab-add {
+  align-self: center;
+  display: inline-flex;
+  padding: 0.35rem;
+}
+.tab-add:hover { color: var(--accent); background: var(--accent-soft); }
+.tab-add svg { width: 14px; height: 14px; fill: currentColor; }
+
+.tab-rename {
+  width: 9rem;
+  margin: 0.35rem 0;
+  padding: 0.3rem 0.4rem;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--r);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
 .board-area {
   min-height: calc(100vh - 50px);
   padding: 1rem 1.25rem 5rem;
