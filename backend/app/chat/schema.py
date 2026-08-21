@@ -380,6 +380,11 @@ class ChatMessageOut(StrictModel):
     # resolve is indistinguishable in the transcript from a question it
     # could not answer, and those are different failures.
     task_kind: str | None = None
+    # The change this message applied, when it applied one. Present on an
+    # `applied` message and nowhere else, which is what lets the transcript
+    # offer Undo against the right thing rather than against "the last
+    # change", a phrase that stops meaning anything in a second tab.
+    action_id: UUID | None = None
     # Which dashboard was in front of the user when this was said. The
     # transcript is global, so without this a reader cannot tell what "this
     # board" referred to three messages ago.

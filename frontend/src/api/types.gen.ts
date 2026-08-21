@@ -580,6 +580,7 @@ export type Status = "pending" | "running" | "stopping" | "stopped" | "done" | "
 export type Total = number;
 export type BoardId6 = string | null;
 export type Action14 = string;
+export type ActionId6 = string | null;
 export type ActiveBoardId = string | null;
 export type ActiveBoardTitle = string;
 export type DisplayedValue1 = string;
@@ -598,6 +599,7 @@ export type Refusal = string | null;
 export type RequestText1 = string | null;
 export type Role = "user" | "assistant";
 export type Say11 = string;
+export type TaskKind = string | null;
 export type ActiveActions = ActionProgressView[];
 export type Id9 = string;
 export type Messages = ChatMessageOut[];
@@ -1019,6 +1021,7 @@ export interface ActionProgressView {
 }
 export interface ChatMessageOut {
   action: Action14;
+  action_id?: ActionId6;
   active_board_id?: ActiveBoardId;
   active_board_title?: ActiveBoardTitle;
   claims?: Claims1;
@@ -1031,6 +1034,7 @@ export interface ChatMessageOut {
   request_text?: RequestText1;
   role: Role;
   say?: Say11;
+  task_kind?: TaskKind;
 }
 export interface VerifiedClaimView {
   displayed_value: DisplayedValue1;

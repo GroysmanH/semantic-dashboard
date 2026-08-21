@@ -135,6 +135,7 @@ def _message_out(stored: dict, body: dict) -> ChatMessageOut:
         missing_metric=body.get("missing_metric"),
         request_text=body.get("request_text"),
         task_kind=body.get("task_kind"),
+        action_id=body.get("action_id"),
         active_board_id=stored.get("active_board_id"),
         active_board_title=stored.get("active_board_title") or "",
         data_exposed=stored.get("data_exposed", False),

@@ -10,11 +10,15 @@ import type { ChatMessageOut } from "../api/types.gen";
 export default function ChatMessage({
   message,
   boards,
+  undoing,
   onNavigate,
+  onUndo,
 }: {
   message: ChatMessageOut;
   boards: { id: string; title: string }[];
+  undoing: boolean;
   onNavigate: (boardId: string, cardId?: string) => void;
+  onUndo: (actionId: string) => void;
 }) {
   if (message.role === "user") {
     return (
@@ -80,6 +84,21 @@ export default function ChatMessage({
               <textarea readOnly rows={2} value={message.request_text} />
             </>
           )}
+        </div>
+      )}
+
+      {/* A change reverses as one thing, however many cards it made. The
+          button names this change rather than "the last one", which stops
+          meaning anything the moment a second tab is open. */}
+      {message.action === "applied" && message.action_id && (
+        <div className="plan-actions">
+          <button
+            type="button"
+            disabled={undoing}
+            onClick={() => onUndo(message.action_id!)}
+          >
+            Undo this
+          </button>
         </div>
       )}
 

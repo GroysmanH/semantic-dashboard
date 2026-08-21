@@ -23,7 +23,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from ..chat import confirm as confirm_plan
-from ..chat.plan import PlanRefused
+from ..chat.plan import PlanRefused, UndoRefused
 from ..chat.schema import (
     ActionProgressView,
     ChatEventEnvelope,
@@ -237,6 +237,9 @@ def confirm(plan_id: uuid.UUID, body: ConfirmIn,
         body={"action": "applied", "say": outcome.applied.summary,
               "plan_id": str(plan_id),
               "board_id": str(outcome.board_id) if outcome.board_id else None,
+              # Read back by the transcript so Undo names this change rather
+              # than "the last one", which stops meaning anything the moment
+              # a second tab is open.
               "action_id": (str(outcome.action_id) if outcome.action_id
                             else None)},
         active_board_id=outcome.board_id,
@@ -299,6 +302,34 @@ def action_events(action_id: uuid.UUID, after: int = 0
         })
         for event in chat_store.list_events(action_id, after_id=after)
     ]
+
+
+@router.post("/actions/{action_id}/undo")
+def undo_action(action_id: uuid.UUID) -> ChatMessageOut:
+    """Reverse one confirmed change as a single thing.
+
+    Whatever its shape: a rename, a move, a removal, or a six-card
+    dashboard. The card's own one-step undo is untouched and still serves
+    the edit box.
+    """
+    action = _action_or_404(action_id)
+    try:
+        summary = confirm_plan.undo(action_id)
+    except UndoRefused as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+    board = (store.get_board(action["board_id"]) if action["board_id"]
+             else None)
+    stored = chat_store.append_message(
+        action["thread_id"], role="assistant",
+        body={"action": "undone", "say": summary,
+              "board_id": str(action["board_id"]) if action["board_id"]
+              else None},
+        active_board_id=(board or {}).get("id"),
+        active_board_title=(board or {}).get("title", ""),
+        data_exposed=False,
+    )
+    return _message_out(stored, stored["body"])
 
 
 @router.post("/actions/{action_id}/stop")

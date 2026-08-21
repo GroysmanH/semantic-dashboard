@@ -314,6 +314,9 @@ def test_a_new_dashboard_arrives_as_a_new_tab(client, thread, board, fake):
     created = store.get_board(uuid.UUID(out["board_id"]))
     assert created["title"] == "Wells"
     assert [c["title"] for c in store.list_cards(created["id"])] == ["Oil"]
+    # The board did not exist when the plan was written, so the action has
+    # to be told about it or the browser follows the build on nothing.
+    assert out["action"]["board_id"] == str(created["id"])
 
 
 def test_stopping_leaves_the_cards_already_built(client, thread, board, fake,
@@ -365,3 +368,159 @@ def test_the_new_routes_are_absent_while_chat_is_disabled(client, method,
 
 def test_an_unknown_plan_is_not_found(client, chat_on):
     assert confirm(client, uuid.uuid4()).status_code == 404
+
+
+# -- undo ----------------------------------------------------------------
+#
+# A turn undoes as one thing. The card's own one-step undo still serves the
+# edit box and is not touched by any of this.
+
+def apply_a(client, thread, board, fake, task_kind, detail, *extra):
+    fake(task(task_kind), detail, *extra)
+    plan = turn(client, thread, board).json()["pending_plan"]
+    return confirm(client, plan["id"]).json()
+
+
+def test_a_rename_undoes(client, thread, board, fake):
+    out = apply_a(client, thread, board, fake, "rename_dashboard",
+                  {"action": "rename_dashboard", "say": "",
+                   "board_id": str(board["id"]), "title": "Wells"})
+    assert store.get_board(board["id"])["title"] == "Wells"
+
+    undone = client.post(f"/chat/actions/{out['message']['action_id']}/undo")
+
+    assert undone.status_code == 200
+    assert store.get_board(board["id"])["title"] == "Operations"
+    assert undone.json()["action"] == "undone"
+
+
+def test_undoing_twice_is_refused(client, thread, board, fake):
+    out = apply_a(client, thread, board, fake, "rename_dashboard",
+                  {"action": "rename_dashboard", "say": "",
+                   "board_id": str(board["id"]), "title": "Wells"})
+    action_id = out["message"]["action_id"]
+    client.post(f"/chat/actions/{action_id}/undo")
+
+    again = client.post(f"/chat/actions/{action_id}/undo")
+
+    assert again.status_code == 409
+    assert store.get_board(board["id"])["title"] == "Operations"
+
+
+def test_undo_will_not_discard_a_later_change(client, thread, board, fake):
+    """Undo restores a remembered state. It is not a licence to overwrite
+    whatever is there now with an older version of it."""
+    out = apply_a(client, thread, board, fake, "rename_dashboard",
+                  {"action": "rename_dashboard", "say": "",
+                   "board_id": str(board["id"]), "title": "Wells"})
+    store.update_board(board["id"], title="Renamed by someone else")
+
+    undone = client.post(f"/chat/actions/{out['message']['action_id']}/undo")
+
+    assert undone.status_code == 409
+    assert "newer change" in undone.json()["detail"]
+    assert store.get_board(board["id"])["title"] == "Renamed by someone else"
+
+
+def test_a_removed_card_comes_back(client, thread, board, fake):
+    card = a_card(board)
+    out = apply_a(client, thread, board, fake, "delete_card",
+                  {"action": "delete_card", "say": "",
+                   "card_id": str(card["id"])})
+    assert store.get_card(card["id"]) is None
+
+    client.post(f"/chat/actions/{out['message']['action_id']}/undo")
+
+    assert store.get_card(card["id"]) is not None
+
+
+def test_a_card_edit_undoes_to_the_earlier_query(client, thread, board, fake):
+    card = a_card(board)
+    out = apply_a(client, thread, board, fake, "edit_card",
+                  # EditCardIntent carries no query: the replacement is
+                  # written by the query step, which is the next payload.
+                  {"card_id": str(card["id"]), "instruction": "by month"},
+                  {"semantic_query": BY_MONTH, "title": "Oil"})
+    assert store.get_card(card["id"])["semantic_query"][
+        "dimensions"][0]["field"] == "reading_date"
+
+    client.post(f"/chat/actions/{out['message']['action_id']}/undo")
+
+    assert store.get_card(card["id"])["semantic_query"][
+        "dimensions"][0]["field"] == "region"
+
+
+def test_a_moved_card_goes_back(client, thread, board, fake):
+    card = a_card(board)
+    before = store.get_card(card["id"])["layout"]
+    out = apply_a(client, thread, board, fake, "layout",
+                  {"action": "layout", "say": "", "changes": [{
+                      "card_id": str(card["id"]),
+                      "layout": {"x": 0, "y": 0, "w": 12, "h": 10}}]})
+    assert store.get_card(card["id"])["layout"]["w"] == 12
+
+    client.post(f"/chat/actions/{out['message']['action_id']}/undo")
+
+    assert store.get_card(card["id"])["layout"] == before
+
+
+def test_a_whole_generated_dashboard_undoes_in_one_action(client, thread,
+                                                          board, fake):
+    """A six-card dashboard reverses as one thing rather than six. That is
+    the entire reason a turn has an undo on top of the card's."""
+    out = apply_a(client, thread, board, fake, "new_dashboard",
+                  {"action": "new_dashboard", "say": "", "title": "Wells",
+                   "cards": [
+                       {"request_id": "r1", "question": "oil by region",
+                        "title": "One"},
+                       {"request_id": "r2", "question": "oil by region",
+                        "title": "Two"}]},
+                  {"semantic_query": BY_REGION, "title": "One"},
+                  {"semantic_query": BY_REGION, "title": "Two"})
+    created = uuid.UUID(out["board_id"])
+    assert len(store.list_cards(created)) == 2
+
+    undone = client.post(f"/chat/actions/{out['action']['id']}/undo")
+
+    assert undone.status_code == 200
+    assert store.get_board(created) is None
+    # Soft, so nothing a person spent a minute on is actually destroyed.
+    assert store.restore_board(created) is not None
+
+
+def test_cards_added_to_an_existing_dashboard_undo_without_it(client, thread,
+                                                              board, fake):
+    out = apply_a(client, thread, board, fake, "new_cards",
+                  {"action": "new_cards", "say": "", "cards": [
+                      {"request_id": "r1", "question": "oil by region",
+                       "title": "Added"}]},
+                  {"semantic_query": BY_REGION, "title": "Added"})
+    assert any(c["title"] == "Added" for c in store.list_cards(board["id"]))
+
+    client.post(f"/chat/actions/{out['action']['id']}/undo")
+
+    assert not any(c["title"] == "Added"
+                   for c in store.list_cards(board["id"]))
+    assert store.get_board(board["id"]) is not None, (
+        "undoing added cards must not take the dashboard with them")
+
+
+def test_a_build_still_running_says_to_stop_it_first(client, thread, board,
+                                                     fake, monkeypatch):
+    monkeypatch.setattr("app.routes.chat.BackgroundTasks.add_task",
+                        lambda *a, **k: None)
+    out = apply_a(client, thread, board, fake, "new_cards",
+                  {"action": "new_cards", "say": "", "cards": [
+                      {"request_id": "r1", "question": "oil by region",
+                       "title": "Pending"}]})
+
+    refused = client.post(f"/chat/actions/{out['action']['id']}/undo")
+
+    assert refused.status_code == 409
+    assert "Stop it first" in refused.json()["detail"]
+
+
+def test_the_undo_route_is_absent_while_chat_is_disabled(client, monkeypatch):
+    monkeypatch.setattr(settings, "chat_enabled", False)
+    assert client.post(
+        f"/chat/actions/{uuid.uuid4()}/undo").status_code == 404

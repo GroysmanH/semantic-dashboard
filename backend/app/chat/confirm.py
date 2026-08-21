@@ -19,6 +19,12 @@ The plan row moves `pending -> confirmed` before any of this, and that
 transition is a compare-and-set. Two browsers confirming the same plan is a
 real sequence of events, not a hypothetical one, and the loser has to be
 told rather than served a second copy of the effect.
+
+Both shapes get an action row, including the ones where nothing runs. It is
+what Undo attaches to, and "this change cannot be undone because it was too
+quick to need a progress bar" is not a rule anybody could be told with a
+straight face. A six-card dashboard then reverses as one thing, which is
+the reason a turn has an undo of its own on top of the card's.
 """
 
 from __future__ import annotations
@@ -29,7 +35,7 @@ from dataclasses import dataclass
 from ..llm.client import LLMClient, LLMError
 from ..store import chat as chat_store
 from . import plan as planner
-from .plan import Applied, PlanRefused
+from .plan import Applied, PlanRefused, UndoRefused
 
 
 @dataclass(frozen=True)
@@ -60,18 +66,48 @@ def confirm(stored_plan: dict, *, client: LLMClient) -> Confirmation:
 
     if resolved.get("kind") not in ("new_cards", "new_dashboard"):
         applied = planner.apply_immediate(resolved)
-        return Confirmation(applied=applied, board_id=applied.board_id,
-                            action_id=None)
+        # An action row even though nothing runs: it is what Undo attaches
+        # to, and a change that cannot be undone because it was too quick to
+        # need a progress bar would be a strange rule to explain.
+        action = chat_store.create_action(
+            stored_plan,
+            provider=getattr(client, "provider", ""),
+            model=getattr(client, "model", ""),
+            effects={"kind": resolved["kind"], "undo": applied.undo,
+                     "summary": applied.summary},
+        )
+        chat_store.transition_action(action["id"], expected="queued",
+                                     status="completed")
+        return Confirmation(
+            applied=Applied(summary=applied.summary,
+                            board_id=applied.board_id,
+                            action_id=action["id"], undo=applied.undo),
+            board_id=applied.board_id, action_id=action["id"])
 
     board_id, placed = planner.create_placeholders(resolved)
+    # A new dashboard has no id until now, and the action row derives its
+    # board from the plan. Handing on the resolved document with the id
+    # filled in is what lets the browser follow the build on the tab it
+    # just landed on rather than on nothing.
     action = chat_store.create_action(
-        stored_plan,
+        {**stored_plan, "resolved": {**resolved, "board_id": str(board_id)}},
         provider=getattr(client, "provider", ""),
         model=getattr(client, "model", ""),
-        effects={"created_board_id":
-                 str(board_id) if resolved["kind"] == "new_dashboard"
-                 else None,
-                 "created_card_ids": [str(c["card_id"]) for c in placed]},
+        effects={
+            "kind": resolved["kind"],
+            "created_board_id": (str(board_id)
+                                 if resolved["kind"] == "new_dashboard"
+                                 else None),
+            "created_card_ids": [str(c["card_id"]) for c in placed],
+            # A six-card dashboard reverses as one thing, which is the whole
+            # reason a turn has an undo of its own on top of the card's.
+            "undo": {
+                "kind": "created",
+                "board_id": (str(board_id)
+                             if resolved["kind"] == "new_dashboard" else None),
+                "card_ids": [str(c["card_id"]) for c in placed],
+            },
+        },
     )
     for ordinal, card in enumerate(placed):
         chat_store.append_action_item(
@@ -189,3 +225,29 @@ def run_action(action_id: uuid.UUID, *, client: LLMClient) -> None:
     chat_store.transition_action(
         action_id, expected="running",
         status="completed_with_errors" if failed else "completed")
+
+
+# States an action can be undone from. `running` is deliberately absent:
+# reversing a generation while it is still writing cards would race the
+# worker, and "stop it first" is a sentence a person can act on.
+UNDOABLE = {"completed", "completed_with_errors", "stopped", "failed"}
+
+
+def undo(action_id: uuid.UUID) -> str:
+    """Reverse one confirmed change, whatever shape it was."""
+    action = chat_store.get_action(action_id)
+    if action is None:
+        raise UndoRefused("There is no record of that change.")
+    if action["status"] == "undone":
+        raise UndoRefused("That has already been undone.")
+    if action["status"] not in UNDOABLE:
+        raise UndoRefused("That is still being built. Stop it first, then "
+                          "undo what it managed.")
+
+    recorded = (action["effects"] or {}).get("undo") or {}
+    # Reversed before the status moves, so a refusal leaves the action
+    # undoable rather than marked done and unreversed.
+    summary = planner.reverse(recorded)
+    chat_store.transition_action(action_id, expected=action["status"],
+                                 status="undone")
+    return summary

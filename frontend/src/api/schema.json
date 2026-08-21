@@ -274,6 +274,19 @@
           "title": "Action",
           "type": "string"
         },
+        "action_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Action Id"
+        },
         "active_board_id": {
           "anyOf": [
             {
@@ -373,6 +386,18 @@
           "default": "",
           "title": "Say",
           "type": "string"
+        },
+        "task_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Kind"
         }
       },
       "required": [

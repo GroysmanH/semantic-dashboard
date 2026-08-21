@@ -441,6 +441,24 @@ when it fits and lands on nothing; otherwise the card takes the next free slot �
 slot `next_slot` would give a card the person created. A model that could place one card
 on top of another could hide the board.
 
+### Undo is per change, not per card
+
+Every confirmed change records its own inverse at the moment the prior state was still
+readable, so a six-card dashboard reverses in one action rather than six. That is the
+whole reason a turn needs an undo on top of the card's: section 9's one-step undo serves
+the edit box, one card at a time, and a generated dashboard is not one card.
+
+The inverse carries both halves — what to restore, and what the change *left behind* — and
+undo refuses when the second no longer matches. Restoring blindly would discard whatever
+came after, which is the same failure as applying a stale plan: the person authorises the
+reversal of one thing and gets the reversal of two. A card edit is re-rendered rather than
+restored from its old spec, because a cached result from before the edit may have expired
+and a chart put back with stale numbers is exactly what the freshness line exists to
+prevent.
+
+Removals are soft throughout, so undo is a restore rather than a rebuild, and nothing
+anyone spent a minute on is actually destroyed.
+
 ### Every number is still recomputed
 
 An answer states figures only as **claims**, and a claim is an address plus an operation —

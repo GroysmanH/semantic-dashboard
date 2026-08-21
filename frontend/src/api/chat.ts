@@ -56,6 +56,12 @@ export const chatApi = {
   actionEvents: (actionId: string, after = 0) =>
     request<ChatEventEnvelope[]>(
       `/chat/actions/${actionId}/events?after=${after}`),
+  /** Reverses one confirmed change as a single thing, whatever shape it
+   *  was. Refused rather than forced when something happened after it. */
+  undoAction: (actionId: string) =>
+    request<ChatMessageOut>(`/chat/actions/${actionId}/undo`, {
+      method: "POST",
+    }),
   stopAction: (actionId: string) =>
     request<ActionProgressView>(`/chat/actions/${actionId}/stop`, {
       method: "POST",

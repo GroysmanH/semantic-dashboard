@@ -220,6 +220,22 @@ export default function ChatPanel({
     }
   };
 
+  const undo = async (actionId: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await chatApi.undoAction(actionId);
+      // The build that made those cards has nothing left to report.
+      setAction(null);
+      await refresh();
+      await onApplied(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const stop = async () => {
     if (!action) return;
     try {
@@ -316,7 +332,9 @@ export default function ChatPanel({
             <ChatMessage
               message={message}
               boards={boards}
+              undoing={busy}
               onNavigate={onNavigate}
+              onUndo={(id) => void undo(id)}
             />
             {results[message.id] && (
               <ChatResult

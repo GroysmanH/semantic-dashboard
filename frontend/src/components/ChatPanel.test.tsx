@@ -16,6 +16,7 @@ vi.mock("../api/chat", () => ({
     actionProgress: vi.fn(),
     actionEvents: vi.fn(),
     stopAction: vi.fn(),
+    undoAction: vi.fn(),
   },
 }));
 
@@ -265,5 +266,59 @@ describe("ChatPanel", () => {
     // Finished: nothing left to stop.
     expect(screen.queryByRole("button", { name: /Stop after/ }))
       .not.toBeInTheDocument();
+  });
+
+  it("offers Undo against the change that message applied, not the last one",
+     async () => {
+    const user = userEvent.setup();
+    vi.mocked(chatApi.getThread).mockResolvedValue({
+      id: "t1",
+      messages: [{
+        id: "m1", role: "assistant", action: "applied",
+        say: "Renamed to “Wells”.", action_id: "a9", created_at: "x",
+      }],
+    } as never);
+    vi.mocked(chatApi.undoAction).mockResolvedValue({} as never);
+    const props = setup();
+
+    await user.click(await screen.findByRole("button", { name: "Undo this" }));
+
+    expect(chatApi.undoAction).toHaveBeenCalledWith("a9");
+    await waitFor(() => expect(props.onApplied).toHaveBeenCalled());
+  });
+
+  it("shows no Undo on a message that changed nothing", async () => {
+    vi.mocked(chatApi.getThread).mockResolvedValue({
+      id: "t1",
+      messages: [{
+        id: "m1", role: "assistant", action: "answer",
+        say: "West Kazakhstan leads.", created_at: "x",
+      }],
+    } as never);
+    setup();
+
+    await screen.findByText("West Kazakhstan leads.");
+    expect(screen.queryByRole("button", { name: "Undo this" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("says why an undo was refused rather than pretending it worked",
+     async () => {
+    const user = userEvent.setup();
+    vi.mocked(chatApi.getThread).mockResolvedValue({
+      id: "t1",
+      messages: [{
+        id: "m1", role: "assistant", action: "applied", say: "Renamed.",
+        action_id: "a9", created_at: "x",
+      }],
+    } as never);
+    vi.mocked(chatApi.undoAction).mockRejectedValue(
+      new Error("That dashboard's name changed again after that"));
+    const props = setup();
+
+    await user.click(await screen.findByRole("button", { name: "Undo this" }));
+
+    expect(await screen.findByText(/changed again after that/)).toBeVisible();
+    expect(props.onApplied).not.toHaveBeenCalled();
   });
 });

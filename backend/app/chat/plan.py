@@ -469,6 +469,11 @@ class Applied:
     # Set when cards still have to be built. Their questions are answered
     # one model call at a time, after this returns.
     action_id: uuid.UUID | None = None
+    # How to reverse this, recorded at the moment the prior state was still
+    # readable. Every entry carries both halves: `was` is what to restore,
+    # and `left` is what this change left behind, so an undo can tell the
+    # difference between reversing itself and overwriting somebody else.
+    undo: dict[str, Any] = field(default_factory=dict)
 
 
 def apply_immediate(resolved: dict) -> Applied:
@@ -481,33 +486,50 @@ def apply_immediate(resolved: dict) -> Applied:
 
     if kind == "layout":
         board_id = uuid.UUID(resolved["board_id"])
+        before = {str(c["id"]): c["layout"]
+                  for c in store.list_cards(board_id)
+                  if str(c["id"]) in resolved["layouts"]}
         store.save_layouts(board_id, resolved["layouts"])
         moved = len(resolved["layouts"])
         return Applied(summary=f"Moved {moved} card"
                                f"{'' if moved == 1 else 's'}.",
-                       board_id=board_id)
+                       board_id=board_id,
+                       undo={"kind": "layout", "board_id": str(board_id),
+                             "was": before, "left": resolved["layouts"]})
 
     if kind == "rename_dashboard":
         board_id = uuid.UUID(resolved["board_id"])
+        before = store.get_board(board_id)
+        if before is None:
+            raise PlanRefused("That dashboard has gone.")
         if store.update_board(board_id, title=resolved["title"]) is None:
             raise PlanRefused("That dashboard has gone.")
         return Applied(summary=f"Renamed to “{resolved['title']}”.",
-                       board_id=board_id)
+                       board_id=board_id,
+                       undo={"kind": "rename_dashboard",
+                             "board_id": str(board_id),
+                             "was": before["title"],
+                             "left": resolved["title"]})
 
     if kind == "reorder_dashboards":
         order = [uuid.UUID(b) for b in resolved["order"]]
+        before = [str(b["id"]) for b in store.list_boards()]
         try:
             store.reorder_boards(order)
         except store.BoardOrderError as exc:
             raise PlanRefused(str(exc)) from exc
-        return Applied(summary="Reordered the tabs.")
+        return Applied(summary="Reordered the tabs.",
+                       undo={"kind": "reorder_dashboards", "was": before,
+                             "left": [str(b) for b in order]})
 
     if kind == "delete_card":
         card_id = uuid.UUID(resolved["card_id"])
         if store.soft_delete_card(card_id) is None:
             raise PlanRefused("That card has already gone.")
         return Applied(summary=f"Removed “{resolved['card_title']}”.",
-                       board_id=uuid.UUID(resolved["board_id"]))
+                       board_id=uuid.UUID(resolved["board_id"]),
+                       undo={"kind": "restore_card",
+                             "card_id": str(card_id)})
 
     if kind == "delete_dashboard":
         board_id = uuid.UUID(resolved["board_id"])
@@ -517,7 +539,9 @@ def apply_immediate(resolved: dict) -> Applied:
             raise PlanRefused("That is the only dashboard left.") from exc
         if removed is None:
             raise PlanRefused("That dashboard has already gone.")
-        return Applied(summary=f"Removed “{resolved['board_title']}”.")
+        return Applied(summary=f"Removed “{resolved['board_title']}”.",
+                       undo={"kind": "restore_dashboard",
+                             "board_id": str(board_id)})
 
     if kind == "edit_card":
         card_id = uuid.UUID(resolved["card_id"])
@@ -539,8 +563,14 @@ def apply_immediate(resolved: dict) -> Applied:
                       "chart_hint": card["chart_hint"],
                       "vega_spec": card["vega_spec"]},
         )
-        return Applied(summary=f"Updated “{resolved['card_title']}”.",
-                       board_id=uuid.UUID(resolved["board_id"]))
+        return Applied(
+            summary=f"Updated “{resolved['card_title']}”.",
+            board_id=uuid.UUID(resolved["board_id"]),
+            undo={"kind": "edit_card", "card_id": str(card_id),
+                  "was": {"semantic_query": card["semantic_query"],
+                          "chart_hint": card["chart_hint"],
+                          "vega_spec": card["vega_spec"]},
+                  "left": r.semantic_query.model_dump(mode="json")})
 
     raise PlanRefused(f"I do not know how to apply a {kind}.")
 
@@ -605,3 +635,113 @@ def build_card(card_id: uuid.UUID, question: str, *, chart_hint: str | None,
         title=card.get("title") or outcome.title,
     )
     return None
+
+
+# -- reversal ------------------------------------------------------------
+
+class UndoRefused(RuntimeError):
+    """The change cannot be reversed, with a sentence saying why.
+
+    Almost always because something happened after it. Undo restores a
+    remembered state; it is not a licence to overwrite whatever is there
+    now with an older version of it.
+    """
+
+
+def _still_ours(left: Any, current: Any, what: str) -> None:
+    """Refuse when the world moved on after the change being reversed.
+
+    An undo that fires regardless would quietly discard whatever came
+    after, which is the same failure as a stale plan being applied: the
+    person is authorising the reversal of one thing and getting the
+    reversal of two.
+    """
+    if left != current:
+        raise UndoRefused(f"{what} changed again after that, so undoing it "
+                          f"would throw away the newer change.")
+
+
+def reverse(undo: dict) -> str:
+    """Put back what a confirmed change replaced.
+
+    Reads only the recorded inverse. Like application, it asks no model
+    anything, and unlike application there is nothing left to decide.
+    """
+    kind = undo.get("kind")
+
+    if kind == "rename_dashboard":
+        board = store.get_board(uuid.UUID(undo["board_id"]))
+        if board is None:
+            raise UndoRefused("That dashboard has gone.")
+        _still_ours(undo["left"], board["title"], "That dashboard's name")
+        store.update_board(board["id"], title=undo["was"])
+        return f"Renamed back to “{undo['was']}”."
+
+    if kind == "reorder_dashboards":
+        current = [str(b["id"]) for b in store.list_boards()]
+        _still_ours(undo["left"], current, "The tab order")
+        store.reorder_boards([uuid.UUID(b) for b in undo["was"]])
+        return "Put the tabs back."
+
+    if kind == "layout":
+        board_id = uuid.UUID(undo["board_id"])
+        current = {str(c["id"]): c["layout"]
+                   for c in store.list_cards(board_id)
+                   if str(c["id"]) in undo["left"]}
+        _still_ours(undo["left"], current, "That layout")
+        store.save_layouts(board_id, undo["was"])
+        return "Put the cards back."
+
+    if kind == "restore_card":
+        if store.restore_card(uuid.UUID(undo["card_id"])) is None:
+            raise UndoRefused("That card is already back.")
+        return "Put the card back."
+
+    if kind == "restore_dashboard":
+        if store.restore_board(uuid.UUID(undo["board_id"])) is None:
+            raise UndoRefused("That dashboard is already back.")
+        return "Put the dashboard back."
+
+    if kind == "edit_card":
+        card_id = uuid.UUID(undo["card_id"])
+        card = store.get_card(card_id)
+        if card is None:
+            raise UndoRefused("That card has gone.")
+        _still_ours(undo["left"], card["semantic_query"], "That card")
+        was = undo["was"]
+        # Re-rendered rather than restored from the old spec: a cached
+        # result from before the edit may have expired, and a chart put back
+        # with stale numbers is exactly what the freshness line exists to
+        # prevent.
+        query = SemanticQuery.model_validate(was["semantic_query"])
+        r = render(query, LAYER, chart_hint=was["chart_hint"])
+        if not is_persistable(r):
+            raise UndoRefused(r.error or "The earlier query no longer runs.")
+        store.update_card(card_id,
+                          semantic_query=was["semantic_query"],
+                          chart_hint=was["chart_hint"],
+                          vega_spec=r.vega_spec, state=r.state, cache=r.cache,
+                          previous=None)
+        return "Put the card's query back."
+
+    if kind == "created":
+        # Generation, reversed as one thing. A six-card dashboard undoes in
+        # one action rather than six, which is the whole reason a turn has
+        # its own undo on top of the card's.
+        removed = 0
+        for card_id in undo.get("card_ids") or []:
+            if store.soft_delete_card(uuid.UUID(card_id)) is not None:
+                removed += 1
+        board_id = undo.get("board_id")
+        if board_id:
+            try:
+                store.soft_delete_board(uuid.UUID(board_id))
+            except store.LastVisibleBoardError as exc:
+                raise UndoRefused(
+                    "That is the only dashboard left, so removing it would "
+                    "leave nothing to look at.") from exc
+            return "Removed the dashboard again."
+        return (f"Removed {removed} card{'' if removed == 1 else 's'} again."
+                if removed else "Those cards had already gone.")
+
+    raise UndoRefused("There is nothing recorded to undo for that.")
