@@ -43,7 +43,7 @@ ACTION_STATUSES = {
     "failed", "cancelled", "undone",
 }
 ACTION_TRANSITIONS = {
-    "queued": {"running", "cancelled", "failed"},
+    "queued": {"running", "completed", "cancelled", "failed"},
     "running": {
         "completed", "completed_with_errors", "stopped", "failed", "cancelled",
     },
