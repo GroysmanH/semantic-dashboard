@@ -57,3 +57,11 @@ def test_app_role_can_write_its_own_schema(app_conn):
         )
         assert cur.fetchone()[0] is not None
     app_conn.rollback()
+
+
+def test_app_role_cannot_create_objects_in_app_schema(app_conn):
+    try:
+        with app_conn.cursor() as cur, pytest.raises(psycopg.errors.InsufficientPrivilege):
+            cur.execute("CREATE TABLE app.untrusted_runtime_table (id integer)")
+    finally:
+        app_conn.rollback()

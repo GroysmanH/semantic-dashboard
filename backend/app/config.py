@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Provider = Literal["anthropic", "gemini", "openai", "nvidia"]
@@ -14,6 +15,17 @@ class Settings(BaseSettings):
     warehouse_url: str = "postgresql://warehouse_ro:warehouse@localhost:5433/semantic"
     app_url: str = "postgresql://app_rw:appsecret@localhost:5433/semantic"
     admin_url: str = "postgresql://postgres:postgres@localhost:5433/semantic"
+    migration_dir: Path = Path("/db/migrations")
+
+    # Chat is unavailable and row sharing is prohibited unless an operator
+    # explicitly enables each gate. Browser consent is an additional gate.
+    chat_enabled: bool = False
+    chat_sees_data: bool = False
+    chat_max_rows: int = Field(default=2_000, gt=0)
+    chat_max_context_chars: int = Field(default=60_000, gt=0)
+    chat_history_turns: int = Field(default=6, gt=0)
+    chat_transient_ttl_seconds: int = Field(default=900, gt=0)
+    chat_tombstone_days: int = Field(default=30, ge=1, le=30)
 
     anthropic_api_key: str = ""
     google_api_key: str = ""
