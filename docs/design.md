@@ -12,7 +12,16 @@ writes SQL that touches the database.** It emits a structured query expressed in
 hand-curated semantic layer, which a deterministic compiler turns into SQL.
 
 **Secondary constraint, load-bearing for the target environment:** no row-level data is
-ever sent to the model at query time. The model sees only the layer definition.
+ever sent to the model **at query time**. Writing a query, the model sees only the layer
+definition, and four tests hold that absolutely.
+
+That scoping is deliberate and was not free. The assistant added in section 10 answers
+questions about the charts already on screen, and no amount of layer definition lets it
+answer "which region is dragging the total down". So the constraint is preserved on the
+query path and relaxed on the assistant path, behind two independent switches, with the
+transcript recording per message whether values were in scope. Section 10 states exactly
+what each surface sees. This is a documented trade, not an erosion: the compiler still
+never receives model-authored SQL, and the assistant still never writes a query.
 
 ### What this is not
 
@@ -73,10 +82,14 @@ natural language
    rendered card
 ```
 
-Two LLM touchpoints, both narrow:
+Three LLM touchpoints, all narrow:
 
 1. **Bootstrap** (batch, offline): profile output → draft layer YAML.
 2. **Query** (interactive): natural language + layer → semantic query JSON + Vega-Lite spec.
+3. **Assistant** (interactive, section 10): the board plus, with both gates open, the rows
+   already on screen → one action from a closed vocabulary. Every query it runs and every
+   card it builds re-enters the pipeline above at step 2, so the diagram is the whole
+   story either way.
 
 Everything else is deterministic.
 
@@ -268,6 +281,11 @@ presentational. Every card header shows:
 3. **Cache timestamp** — "as of 14:32".
 4. **Collapsible SQL panel**, collapsed by default.
 
+The assistant has an equivalent, described in section 10: every figure it states is
+recomputed from the rows before the sentence is shown, and a figure that does not check
+out is removed rather than captioned. Same principle in both places — the thing a reader
+trusts is computed, never asserted by the model.
+
 ### Ambiguity
 
 Detected by margin: the model returns candidate matches, and if the top candidate does
@@ -275,22 +293,28 @@ not win clearly, the card asks one clarifying question before rendering. Falls b
 refusal naming what's undefined. A confident wrong chart is how manager-facing BI loses
 trust permanently — one bad number in one board meeting and nobody opens it again.
 
-### Ungrounded fallback
+### Out-of-grammar questions
 
-Out-of-grammar questions get an answer, but never a durable one:
+**Not built, and the reasoning is worth keeping.** The original design gave these an
+ungrounded answer: the model writes raw SQL, the result renders in the answer pane only,
+marked ungrounded and unsaveable. The argument was that every guarantee above is a
+guarantee about *saved* objects, so an ephemeral answer costs nothing and always gives
+the manager something.
 
-- LLM writes raw SQL; result renders **in the answer pane only**, marked ungrounded,
-  SQL shown **expanded by default**.
-- **Cannot be saved to a board.** The "add to dashboard" control is absent, not disabled.
-- Offers "request this as a metric" instead — files the question to the layer author with
-  the generated SQL attached as a starting point.
+It was dropped because it puts model-authored SQL in front of the database for the first
+time, which is the one thing section 1 says this app does not do. "Ephemeral" is a
+property of the rendering, not of the query: the SELECT still runs, on a credential that
+can read everything the layer deliberately does not expose. That is a different system
+with a different threat model, not a fallback.
 
-This preserves every guarantee above (they were only ever guarantees about *saved*
-objects), always gives the manager an answer, and converts out-of-grammar questions into
-a prioritised backlog of what the layer is missing.
+What shipped is the second half of the original idea without the first. A refusal names
+what is missing and hands back a copyable request for the layer author — the question
+stated in their terms, with the missing metric named. Out-of-grammar questions still
+become a backlog of what the layer lacks; they just do not become SQL on the way.
 
-A warning label on a saveable card was rejected: boilerplate goes unread within a week,
-and the fallback fires precisely on the hard questions where being wrong matters most.
+A warning label on a saveable card was rejected for its own reasons: boilerplate goes
+unread within a week, and the fallback would fire precisely on the hard questions where
+being wrong matters most.
 
 ### Broken cards
 
@@ -309,19 +333,132 @@ The manager types "break this down by region" into an existing card.
 
 - The LLM receives **the card's current semantic query plus the layer** — not conversation
   history. The card's state *is* the context, which sidesteps multi-turn drift entirely.
+  This stays true even though the assistant in section 10 does carry history: refinement
+  and conversation are different surfaces, and the card is the one with a state to be the
+  context.
 - It returns a **full replacement query**, validated identically to a fresh one. The diff
   is computed by you and displayed. Small models handle patch semantics badly; this gets
   the benefit of a patch without asking for one.
 - **Route by diff:** if the semantic query is byte-identical and only the Vega-Lite spec
   changed (chart type, sort, colour), re-render from cache without touching the database.
   Chart-type flips feel instant instead of costing a 20-second warehouse scan.
+- **A clarifying question is stored on the card.** Without that the card asks "oil or
+  gas?", the person types "oil", and the next request arrives as one word attached to
+  nothing. The card carries the exchange — the question and the *original* request, which
+  is what has to be rebuilt — and clears it once resolved so it cannot colour a later,
+  unrelated question. An edit the assistant makes fills the same field the edit box does.
 - **One-step undo.** Store the previous query and spec on the card. Refinement will
   occasionally make a card worse, and with no undo the manager's only recourse is
   rebuilding — the moment they stop trusting the edit box.
 
 ---
 
-## 10. Bootstrap and profiler
+## 10. The assistant
+
+A side panel, spanning every dashboard rather than scoped to one, that answers questions
+about what is on screen and proposes changes to it. It shares the query path: every
+query it runs is written by the same `ask()` the card's own box uses.
+
+### What each surface sees
+
+Three surfaces, three different answers, stated here because section 1's headline claim
+is only true of the first.
+
+| Surface | Layer | Row values | Conversation |
+|---|---|---|---|
+| Query path (`/ask`, refinement) | yes | **never** | never |
+| Chart compilation | n/a | yes, but no model is involved | n/a |
+| Assistant | yes | only with both gates open | last N turns, as prose |
+
+Row values reach the assistant only when `chat_sees_data` (server) **and**
+`share_visible_data` (browser) are both true. The client can withhold consent it was
+given; it can never grant consent the server withheld. With the gates shut the context
+carries structure only — titles, restatements, row counts, chart types — and the
+assistant is told to say it cannot see the numbers and offer to fetch them.
+
+Only the *active* dashboard is described in detail. Other dashboards are listed by name
+so they can be referred to and changed, never read: their rows are not on screen, and
+putting them in scope would share data nobody is looking at.
+
+The row budget is a crash guard, not a policy cap. Past it, the largest remaining card
+degrades to a deterministic summary and **the transcript says so**, because an answer
+built on a summary must not read as if it were built on the rows.
+
+### A turn is two calls
+
+The action contract has twelve variants. None of them can be asked for: a
+structured-output schema is compiled into a grammar, and Anthropic rejects one past
+roughly 8.4KB of JSON Schema. Measured live on `claude-haiku-4-5`, four read-only
+variants come to 8293B and compile; the same four plus one three-field variant come to
+8568B and do not.
+
+So a turn is one call when the answer is prose and two when it is not:
+
+1. **Router** — four variants: `answer`, `clarify`, `refuse`, or `task` with a `kind`.
+   4937B, with room to spare.
+2. **Detail** — a single-variant schema for that kind. The largest is under 2.1KB.
+
+The split earns more than a fit. The router carries no card id, no board id and no
+query, so a reply cannot arrive already half-applied. And two kinds need no schema at
+all: `run_query` and `edit_card` resolve through `query_step.ask()`, which already has
+the query prompt, the synonym guard, layer validation and a retry. **The assistant never
+writes a semantic query.** It says which question to ask; the one path that has always
+turned English into a query turns this one too.
+
+### Nothing is applied by the turn that proposes it
+
+A change becomes a **frozen plan**: a row holding both what will be applied and the
+line-by-line preview shown to the person, in one document, so the sentence they read and
+the change they authorise cannot come from different decisions. Applying it is a separate
+request from the browser.
+
+- **Confirmation asks no model anything.** It reads the resolved document, never the
+  action the assistant proposed. An edit's replacement query was written while the plan
+  was being resolved, which is what lets the preview be an exact diff.
+- **A plan knows what it was computed against.** It records the `revision` of every board
+  it touches. If any of them moved, confirming is refused rather than applied to a
+  dashboard that is no longer the one described.
+- **One pending plan per conversation.** Two would mean confirming the older one after
+  reading the newer one's preview.
+- **Claiming the plan is a compare-and-set.** Two browsers confirming the same plan is a
+  real sequence of events; the loser is told, not served a second copy of the effect.
+- **Removals are soft**, and the server refuses to remove the last remaining dashboard.
+
+### Generated cards
+
+New cards carry questions, not queries. The dashboard and its empty cards are created at
+once so the grid is settled, then each question is answered one model call at a time in
+the background, sequentially — six concurrent calls would finish sooner and arrive as one
+indistinguishable batch. Each card succeeds or fails alone: a question the layer cannot
+answer costs that card and nothing else, and its placeholder stays and says why.
+
+Progress is a **log, not a stream**: the browser asks for the events it has not seen. Same
+events, same order, same payloads a stream would carry; a reconnect is just another
+request with a different number in it.
+
+Placement is the application's decision. A layout the assistant asks for is honoured only
+when it fits and lands on nothing; otherwise the card takes the next free slot — the same
+slot `next_slot` would give a card the person created. A model that could place one card
+on top of another could hide the board.
+
+### Every number is still recomputed
+
+An answer states figures only as **claims**, and a claim is an address plus an operation —
+which card, which column, which row, and what arithmetic. The server reads the value out
+of the row and redoes the sum. Any figure the model supplies is ignored, and a claim that
+does not check out is removed from the answer rather than shown with a caveat. This is the
+assistant's equivalent of the restatement: the trust surface is computed, never asserted.
+
+Addressing rows *by position* rather than by matching column values was forced by
+behaviour, not chosen. Asked three ways for the keys identifying a row, Haiku still sent
+an empty key set — which matches every row — and tightening the type did not help, because
+constrained decoding does not enforce `minProperties`. A position is mechanical: the rows
+are listed in order, the server holds one snapshot for the whole turn, and an index that
+does not exist is simply withdrawn.
+
+---
+
+## 11. Bootstrap and profiler
 
 A batch job, run offline by the layer author.
 
@@ -359,7 +496,7 @@ cancelled. Review is where the value is added.
 
 ---
 
-## 11. Dashboard and caching
+## 12. Dashboard and caching
 
 - 12-column drag-resize grid (`react-grid-layout`), persisting `{x, y, w, h}` per card.
 - Vega-Lite specs, validated against the schema — reject on failure rather than rendering
@@ -371,7 +508,7 @@ cancelled. Review is where the value is added.
 
 ---
 
-## 12. Eval harness
+## 13. Eval harness
 
 ~30 natural-language questions paired with expected semantic-query JSON, run as a test
 suite. **Write the fixtures before tuning the prompt.**
@@ -382,13 +519,26 @@ ordering. Report:
 - Accuracy with the semantic layer vs. raw text-to-SQL baseline.
 - Accuracy by model, so swapping in a local model is a measurement rather than a hope.
 
+The assistant gets its own suite and its own runner, because a turn fails in ways a query
+cannot and the fixes live in different places. Four axes, never averaged: **action**
+(which of the twelve things the turn decided this was), **query** (was the query right),
+**plan** (having routed to a change, did it name the right cards), and **claims** (did the
+figures survive recomputation). Routing to `new_cards` and then proposing two cards
+instead of three is a second-stage failure; folding it into action accuracy would hide
+which of the two calls went wrong.
+
+A change fixture is scored on what the turn *set out to do*. A `delete_dashboard` the
+server then declines still routed correctly — declining it is the application's job, and a
+unit test holds that rule. No eval turn changes anything: a change is proposed as a plan
+and applied only by a confirmation the suite never sends.
+
 This is the highest-leverage item on the list for how the project reads to a technical
 reviewer. *"78% exact-match on 30 held-out questions, 91% with the semantic layer versus
 54% without"* is a sentence almost no side project can produce.
 
 ---
 
-## 13. Stack
+## 14. Stack
 
 | Layer | Choice | Why |
 |---|---|---|
@@ -411,7 +561,7 @@ orders-and-customers demo.
 
 ---
 
-## 14. Build order
+## 15. Build order
 
 1. Seed database — `stg`/`ddh` schemas, synthetic dirty data, seed script.
 2. Profiler — `pg_catalog` introspection, three redaction levels, `--dry-run`.
@@ -426,21 +576,28 @@ orders-and-customers demo.
 11. TTL cache + refresh.
 12. **Eval harness** — 30 fixtures, baseline comparison.
 13. Refinement + one-step undo.
-14. Ungrounded fallback (answer pane only, unsaveable).
+14. ~~Ungrounded fallback~~ — dropped; see section 8 for why.
 15. `validate-all` command.
 16. README.
+17. Tabs, board ordering, export (PNG, CSV, JSON).
+18. Assistant: read-only turns, board context behind two gates, claim verification.
+19. Assistant: frozen plans, confirmation, generated dashboards.
 
 Steps 1–7 are the spine; if you stop anywhere, stop after 12.
 
 ---
 
-## 15. README framing (90 seconds)
+## 16. README framing (90 seconds)
 
 In this order:
 
-1. One-paragraph problem statement, **leading with the constraint**: *no row-level data
-   ever reaches the model.* That's the sentence that makes an enterprise-minded reader
-   keep reading, and it's true of the design rather than retrofitted.
+1. One-paragraph problem statement, **leading with the constraint**: *the model never
+   writes SQL, and never sees a row while writing a query.* That's the sentence that makes
+   an enterprise-minded reader keep reading, and it's true of the design rather than
+   retrofitted. State the assistant's scope in the same breath rather than in a footnote:
+   it can be shown the rows already on screen, both switches are the operator's, and every
+   figure it states is recomputed before it is shown. A reader who finds that out later
+   discounts everything else on the page.
 2. GIF of the interaction — ask, render, refine.
 3. Eval table.
 4. Architecture diagram.
@@ -451,7 +608,7 @@ anyone technical will know.
 
 ---
 
-## 16. Risks
+## 17. Risks
 
 | Risk | Severity | Mitigation |
 |---|---|---|
