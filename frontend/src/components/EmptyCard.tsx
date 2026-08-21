@@ -1,15 +1,5 @@
 import { useState } from "react";
-import type { Provider, Providers } from "../api/client";
 import AskBar from "./AskBar";
-
-/** Named by the model, not the vendor: "DeepSeek" is what someone asked
- *  for, even though the key and the hosting are NVIDIA's. */
-const PROVIDER_LABEL: Record<Provider, string> = {
-  anthropic: "Claude",
-  gemini: "Gemini",
-  openai: "GPT",
-  nvidia: "DeepSeek",
-};
 
 /** A real persisted row, not a placeholder: a manager sketching a layout
  *  with four blank cards must not lose them on reload. The examples are
@@ -17,23 +7,25 @@ const PROVIDER_LABEL: Record<Provider, string> = {
  *  for what vocabulary exists. */
 export default function EmptyCard({
   examples,
-  providers,
+  strongAvailable,
   busy,
   note,
   onAsk,
 }: {
   examples: string[];
-  providers: Providers;
+  /** The provider itself is chosen once, for the session, in the assistant
+   *  drawer. Repeating that choice on every blank card asked the same
+   *  question four times on a four-card board. */
+  strongAvailable: boolean;
   busy: boolean;
   note?: string | null;
-  onAsk: (question: string, hard: boolean, provider: Provider) => void;
+  onAsk: (question: string, hard: boolean) => void;
 }) {
   const [hard, setHard] = useState(false);
-  const [provider, setProvider] = useState<Provider>(providers.default);
 
   const submit = (q: string) => {
     if (!q.trim() || busy) return;
-    onAsk(q.trim(), hard, provider);
+    onAsk(q.trim(), hard);
   };
 
   return (
@@ -45,33 +37,17 @@ export default function EmptyCard({
         onSubmit={submit}
       />
 
-      {/* Only shown when there is a real choice. One key configured is not
-          a decision worth putting in front of anyone. */}
-      {providers.available.length > 1 && (
-        <div className="provider" role="radiogroup" aria-label="Model provider">
-          <span className="eyebrow">Ask</span>
-          {providers.available.map((p) => (
-            <button
-              key={p}
-              type="button"
-              role="radio"
-              aria-checked={provider === p}
-              className={provider === p ? "on" : ""}
-              onClick={() => setProvider(p)}
-              disabled={busy}
-            >
-              {PROVIDER_LABEL[p] ?? p}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <label className="harder" title="Costs more. Use it when a question needs care.">
+      <label
+        className="harder"
+        title={strongAvailable
+          ? "Costs more. Use it when a question needs care."
+          : "This provider has one model tier, so there is nothing to escalate to."}
+      >
         <input
           type="checkbox"
-          checked={hard}
+          checked={hard && strongAvailable}
           onChange={(e) => setHard(e.target.checked)}
-          disabled={busy}
+          disabled={busy || !strongAvailable}
         />
         <span>This one is hard — think harder about it</span>
       </label>

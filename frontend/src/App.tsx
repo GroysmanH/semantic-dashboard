@@ -3,9 +3,12 @@ import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import "./styles.css";
 import Board from "./components/Board";
+import ChatPanel from "./components/ChatPanel";
 import TabBar from "./components/TabBar";
-import type { BoardSummary, Providers } from "./api/client";
+import type { BoardSummary, ChatGates, Provider, Providers } from "./api/client";
 import { api } from "./api/client";
+import { chatApi } from "./api/chat";
+import { prefs } from "./state/preferences";
 
 // Which tab you were last on is view state, not data. It belongs to this
 // browser, not to the boards everyone shares.
@@ -21,6 +24,18 @@ export default function App() {
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // One provider for the whole session, remembered. Asked once per blank
+  // card it was the same question four times on a four-card board.
+  const [provider, setProviderState] = useState<Provider>("anthropic");
+  const [gates, setGates] = useState<ChatGates>({
+    enabled: false, data_sharing_permitted: false,
+  });
+  const [threadId, setThreadId] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [pinned, setPinned] = useState(prefs.pinned());
+  const [chatWidth, setChatWidth] = useState(prefs.width());
+  const [shareData, setShareData] = useState(prefs.shareData());
   // React state does not update synchronously enough to be a lock. This ref
   // prevents a second board mutation entering before the busy render lands.
   const mutationInFlight = useRef(false);
@@ -41,6 +56,8 @@ export default function App() {
         const [listed, layer] = await Promise.all([api.listBoards(), api.layer()]);
         setExamples(layer.examples);
         setProviders(layer.providers);
+        setGates(layer.chat ?? { enabled: false, data_sharing_permitted: false });
+        setProviderState(prefs.provider(layer.providers.default));
 
         const known = listed.length ? listed : [await api.createBoard("Operations")];
         setBoards(known);
@@ -55,11 +72,56 @@ export default function App() {
         // rather than showing an empty screen.
         const opening = known.find((b) => b.id === remembered) ?? known[0];
         select(opening.id);
+
+        if (layer.chat?.enabled) {
+          // The thread outlives the tab and the reload. A remembered one
+          // that the server no longer has is replaced rather than surfaced
+          // as an error nobody can act on.
+          const remembered_thread = prefs.threadId();
+          let id = remembered_thread;
+          if (id) {
+            try {
+              await chatApi.getThread(id);
+            } catch {
+              id = null;
+            }
+          }
+          if (!id) id = (await chatApi.createThread()).id;
+          prefs.setThreadId(id);
+          setThreadId(id);
+          setChatOpen(prefs.open());
+        }
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
     })();
   }, [select]);
+
+  const setProvider = (p: Provider) => {
+    setProviderState(p);
+    prefs.setProvider(p);
+  };
+
+  const toggleChat = useCallback(() => {
+    setChatOpen((wasOpen) => {
+      prefs.setOpen(!wasOpen);
+      return !wasOpen;
+    });
+  }, []);
+
+  // Documented on the button's title so the shortcut is discoverable
+  // rather than folklore.
+  useEffect(() => {
+    if (!gates.enabled) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.shiftKey && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        toggleChat();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [gates.enabled, toggleChat]);
 
   const guard = async (work: () => Promise<void>) => {
     if (mutationInFlight.current) return;
@@ -137,6 +199,17 @@ export default function App() {
         <span className="eyebrow">grounded in a curated layer · no row data leaves the warehouse</span>
         <span className="spacer" />
         <div id="board-export-action" className="masthead-action" />
+        {gates.enabled && (
+          <button
+            type="button"
+            className="chat-toggle"
+            aria-pressed={chatOpen}
+            title="Show or hide the assistant (Ctrl/Cmd + Shift + A)"
+            onClick={toggleChat}
+          >
+            Chat
+          </button>
+        )}
       </header>
       <TabBar
         boards={boards}
@@ -149,8 +222,47 @@ export default function App() {
         onReorder={reorder}
       />
       {error && <p className="notice broken" style={{ margin: "1rem 1.25rem" }}>{error}</p>}
-      {boardId && (
-        <Board key={boardId} boardId={boardId} examples={examples} providers={providers} />
+      {/* Pinning narrows the workspace with CSS only. It must never reach
+          saveLayout: a drawer is this browser's furniture, not the board's. */}
+      <div
+        className="workspace"
+        style={chatOpen && pinned ? { marginRight: chatWidth } : undefined}
+      >
+        {boardId && (
+          <Board
+            key={boardId}
+            boardId={boardId}
+            examples={examples}
+            provider={provider}
+            strongAvailable={
+              providers.capabilities?.[provider]?.strong_available ?? true
+            }
+          />
+        )}
+      </div>
+      {gates.enabled && (
+        <ChatPanel
+          threadId={threadId}
+          open={chatOpen}
+          pinned={pinned}
+          width={chatWidth}
+          activeBoardId={boardId}
+          activeBoardTitle={boards.find((b) => b.id === boardId)?.title ?? ""}
+          boards={boards}
+          provider={provider}
+          providers={providers.available}
+          capabilities={providers.capabilities ?? {}}
+          shareVisibleData={shareData}
+          dataSharingPermitted={gates.data_sharing_permitted}
+          selectedCardId={null}
+          onClose={toggleChat}
+          onPinnedChange={(v) => { setPinned(v); prefs.setPinned(v); }}
+          onWidthChange={(px) => { setChatWidth(px); prefs.setWidth(px); }}
+          onProviderChange={setProvider}
+          onConsentChange={(v) => { setShareData(v); prefs.setShareData(v); }}
+          onThreadChange={(id) => { setThreadId(id); prefs.setThreadId(id); }}
+          onNavigate={(targetBoard) => select(targetBoard)}
+        />
       )}
     </>
   );

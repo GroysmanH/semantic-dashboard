@@ -230,6 +230,138 @@ body {
 }
 .export-menu-popover button:disabled { opacity: 0.4; }
 
+/* -- assistant drawer --------------------------------------------------- */
+
+.workspace { transition: margin-right var(--motion); }
+
+.chat-toggle {
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  background: none;
+  color: var(--ink-soft);
+}
+.chat-toggle[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.chat-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--surface);
+  border-left: 1px solid var(--rule);
+  box-shadow: var(--shadow);
+}
+/* Pinned only removes the shadow: the workspace margin is what actually
+   makes room, and that is CSS, never a saved layout. */
+.chat-drawer.pinned { box-shadow: none; }
+
+.chat-resize {
+  position: absolute;
+  top: 0;
+  left: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+}
+.chat-resize:hover { background: var(--accent-soft); }
+
+.chat-head {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.75rem 0.9rem;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.chat-head .spacer { flex: 1; }
+.chat-scope {
+  margin: 0;
+  padding: 0.5rem 0.9rem;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.chat-log {
+  flex: 1;
+  margin: 0;
+  padding: 0.9rem;
+  overflow-y: auto;
+  list-style: none;
+}
+.chat-turn { margin-bottom: 1rem; }
+.chat-turn p { margin: 0 0 0.35rem; }
+.chat-user p {
+  padding: 0.5rem 0.65rem;
+  background: var(--surface-2);
+  border-radius: var(--r);
+  font-size: 13px;
+}
+.chat-assistant { font-size: 13px; line-height: 1.55; }
+.chat-assistant.chat-refuse { border-left: 2px solid var(--signal); padding-left: 0.6rem; }
+.chat-assistant.chat-clarify { border-left: 2px solid var(--accent); padding-left: 0.6rem; }
+.chat-empty p { color: var(--ink-faint); }
+
+.chat-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.chat-sources .chip {
+  padding: 0.15rem 0.4rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  background: none;
+  font-size: 10px;
+  color: var(--ink-soft);
+}
+.chat-sources .chip:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+/* A card the transcript still cites but the board no longer has. */
+.chat-sources .chip.dead {
+  color: var(--ink-faint);
+  border-style: dashed;
+  text-decoration: line-through;
+  cursor: default;
+}
+
+.chat-exposed { display: block; margin-top: 0.3rem; }
+.chat-request textarea {
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.35rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  font-family: var(--mono);
+  font-size: 11px;
+  resize: vertical;
+}
+
+.chat-result {
+  margin: 0.4rem 0 0;
+  padding: 0.6rem;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r);
+  background: var(--surface-2);
+}
+.chat-chart { height: 220px; margin: 0.5rem 0; }
+
+.chat-compose {
+  padding: 0.75rem 0.9rem;
+  border-top: 1px solid var(--rule);
+}
+.chat-compose .harder { margin-top: 0.4rem; }
+
 .board-area {
   min-height: calc(100vh - 50px);
   padding: 1rem 1.25rem 5rem;

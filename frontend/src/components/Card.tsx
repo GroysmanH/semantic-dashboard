@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Card as CardT, Providers } from "../api/client";
+import type { Card as CardT, Provider } from "../api/client";
 import { api } from "../api/client";
 import AskBar from "./AskBar";
 import CardHeader from "./CardHeader";
@@ -21,7 +21,8 @@ function fallbackDescription(chartType: string | null | undefined): string {
 export default function Card({
   card,
   examples,
-  providers,
+  provider,
+  strongAvailable,
   selected,
   sqlOpen,
   resizing,
@@ -34,7 +35,8 @@ export default function Card({
 }: {
   card: CardT;
   examples: string[];
-  providers: Providers;
+  provider: Provider;
+  strongAvailable: boolean;
   selected: boolean;
   sqlOpen: boolean;
   resizing: boolean;
@@ -138,7 +140,9 @@ export default function Card({
     setBusy(true);
     setAskNote(null);
     try {
-      const result = await api.ask(question, card.id);
+      // The same provider the rest of the session uses. An edit that
+      // silently switched model would make two cards incomparable.
+      const result = await api.ask(question, card.id, false, provider);
       if (result.state === "clarify" || result.state === "refused") {
         setAskNote(result.message);
       } else {
@@ -232,10 +236,10 @@ export default function Card({
         {state === "empty" && (
           <EmptyCard
             examples={examples}
-            providers={providers}
+            strongAvailable={strongAvailable}
             busy={busy}
             note={askNote}
-            onAsk={async (question, hard, provider) => {
+            onAsk={async (question, hard) => {
               setBusy(true);
               setAskNote(null);
               try {

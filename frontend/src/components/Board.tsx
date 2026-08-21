@@ -4,7 +4,7 @@ import { boardPng } from "../export/board";
 import { dashboardBlob } from "../export/json";
 import { downloadBlob, safeName, type VegaView } from "../export/png";
 import GridLayout from "react-grid-layout";
-import type { Board as BoardT, Layout, Providers } from "../api/client";
+import type { Board as BoardT, Layout, Provider } from "../api/client";
 import { api } from "../api/client";
 import Card from "./Card";
 import ExportMenu from "./ExportMenu";
@@ -140,11 +140,13 @@ function layoutMap(cards: BoardT["cards"]): Record<string, Layout> {
 export default function Board({
   boardId,
   examples,
-  providers,
+  provider,
+  strongAvailable,
 }: {
   boardId: string;
   examples: string[];
-  providers: Providers;
+  provider: Provider;
+  strongAvailable: boolean;
 }) {
   const [board, setBoard] = useState<BoardT | null>(null);
   const [canonicalLayout, setCanonicalLayout] = useState<Record<string, Layout>>({});
@@ -463,7 +465,8 @@ export default function Board({
               <Card
                 card={card}
                 examples={examples}
-                providers={providers}
+                provider={provider}
+                strongAvailable={strongAvailable}
                 selected={selectedCardId === card.id}
                 sqlOpen={openSqlCardId === card.id}
                 resizing={resizingCardId === card.id}

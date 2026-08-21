@@ -2,7 +2,10 @@ import type { Render, SemanticQuery } from "./types.gen";
 
 const BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000";
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/** Exported so the chat client shares one base URL and one error rule.
+ *  A second fetch wrapper is how two halves of an app end up disagreeing
+ *  about what a failure looks like. */
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     ...init,
     headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
@@ -51,7 +54,27 @@ export type Provider = "anthropic" | "gemini" | "openai" | "nvidia";
 
 /** Only providers with a key configured; the selector offers no more than
  *  what can actually answer. */
-export interface Providers { default: Provider; available: Provider[] }
+export interface ProviderCapability {
+  default_model: string;
+  strong_model: string;
+  /** False when a provider's two tiers are the same model id, as NVIDIA's
+   *  deliberately are. Offering "think harder" there would promise an
+   *  escalation that cannot happen. */
+  strong_available: boolean;
+}
+
+export interface Providers {
+  default: Provider;
+  available: Provider[];
+  capabilities?: Record<string, ProviderCapability>;
+}
+
+/** Both server gates, stated separately so the consent control can say
+ *  which one is closed. */
+export interface ChatGates {
+  enabled: boolean;
+  data_sharing_permitted: boolean;
+}
 
 export interface LayerField { name: string; label: string; type?: string; agg?: string }
 export interface LayerInfo {
@@ -61,6 +84,7 @@ export interface LayerInfo {
   }[];
   examples: string[];
   providers: Providers;
+  chat?: ChatGates;
 }
 
 export const api = {
