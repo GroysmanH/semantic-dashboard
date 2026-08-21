@@ -184,6 +184,35 @@ class AnthropicClient:
         return response.parsed_output
 
 
+def _gemini_schema(schema: dict) -> dict:
+    """Rewrite a Pydantic JSON Schema into the dialect Gemini accepts.
+
+    Gemini's schema dialect takes `anyOf` but not `oneOf`, and Pydantic
+    emits `oneOf` plus a `discriminator` block for a discriminated union.
+    Sent as written, a 12-variant union comes back as a bare 400
+    INVALID_ARGUMENT naming nothing.
+
+    Loosening the wire schema costs no strictness: the response is
+    re-validated here against the original model, so the discriminator, the
+    literal tags and `extra="forbid"` are all still enforced. The wire
+    schema only has to be good enough to steer generation.
+    """
+    if isinstance(schema, list):
+        return [_gemini_schema(v) for v in schema]
+    if not isinstance(schema, dict):
+        return schema
+
+    out = {}
+    for key, value in schema.items():
+        if key == "oneOf":
+            out["anyOf"] = _gemini_schema(value)
+        elif key == "discriminator":
+            continue        # its `mapping` is not part of the dialect
+        else:
+            out[key] = _gemini_schema(value)
+    return out
+
+
 class GeminiClient:
     """Google AI Studio, same contract.
 
@@ -193,6 +222,10 @@ class GeminiClient:
     locally but has nowhere to put it on the wire, so `extra="forbid"`
     turns into a 400 rather than a constraint. The JSON Schema path takes
     `$defs`, `$ref`, `anyOf` and `additionalProperties` as written.
+
+    It does not take `oneOf`, which Pydantic emits for a discriminated
+    union, so `_gemini_schema` rewrites those before sending. See its
+    docstring for why that costs no strictness.
 
     The response is then re-validated here against the original model
     rather than trusting the SDK's own `.parsed`, so every declared bound
@@ -238,7 +271,8 @@ class GeminiClient:
                     # byte-stable, so the same prefix is what gets reused.
                     system_instruction=system,
                     response_mime_type="application/json",
-                    response_json_schema=schema.model_json_schema(),
+                    response_json_schema=_gemini_schema(
+                        schema.model_json_schema()),
                     max_output_tokens=self.max_tokens,
                     # No tools are ever declared here, and leaving the
                     # feature on makes the SDK warn on every single call.

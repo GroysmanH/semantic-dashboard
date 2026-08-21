@@ -31,7 +31,7 @@ def claim(text, value, operation="exact", operands=None):
         text=text, displayed_value=value, operation=operation,
         operands=operands or [
             ClaimOperand(card_id=CARD, field="oil",
-                         keys={"region": "West Kazakhstan"})],
+                         row=0)],
     )
 
 
@@ -89,8 +89,8 @@ def test_a_number_close_but_materially_different_is_withdrawn():
 
 def two(field="oil"):
     return [
-        ClaimOperand(card_id=CARD, field=field, keys={"region": "Atyrau"}),
-        ClaimOperand(card_id=CARD, field=field, keys={"region": "Aktobe"}),
+        ClaimOperand(card_id=CARD, field=field, row=1),
+        ClaimOperand(card_id=CARD, field=field, row=2),
     ]
 
 
@@ -141,8 +141,8 @@ def test_a_zero_denominator_withdraws_rather_than_raising():
     rows = {CARD: [{"region": "A", "oil": 5}, {"region": "B", "oil": 0}]}
     c = Claim(text="A is 100% of B.", displayed_value="100%",
               operation="percentage", operands=[
-                  ClaimOperand(card_id=CARD, field="oil", keys={"region": "A"}),
-                  ClaimOperand(card_id=CARD, field="oil", keys={"region": "B"})])
+                  ClaimOperand(card_id=CARD, field="oil", row=0),
+                  ClaimOperand(card_id=CARD, field="oil", row=1)])
     out = verify_turn(say="", claims=[c], rows_by_card=rows)
     assert out.claims == []
 
@@ -150,38 +150,50 @@ def test_a_zero_denominator_withdraws_rather_than_raising():
 @pytest.mark.parametrize("operation", ["difference", "ratio", "percentage",
                                        "percentage_change"])
 def test_two_operand_operations_reject_a_single_operand(operation):
-    out = verify("", [claim("x is 1.", "1", operation=operation)])
+    out = verify("", [claim("x is 1.", "1", operation=operation)])  # one operand
     assert out.claims == []
 
 
 # -- resolution failures -------------------------------------------------
 
+def test_a_row_that_does_not_exist_withdraws():
+    c = claim("Something is 1.", "1", operands=[
+        ClaimOperand(card_id=CARD, field="oil", row=99)])
+    assert verify("", [c]).claims == []
+
+
+def test_a_negative_row_cannot_be_expressed():
+    with pytest.raises(Exception):
+        ClaimOperand(card_id=CARD, field="oil", row=-1)
+
+
+def test_a_single_row_card_is_addressed_as_row_zero():
+    rows = {CARD: [{"total": 42}]}
+    c = Claim(text="The total is 42.", displayed_value="42",
+              operation="exact",
+              operands=[ClaimOperand(card_id=CARD, field="total", row=0)])
+    assert len(verify_turn(say="", claims=[c], rows_by_card=rows).claims) == 1
+
+
 def test_a_missing_card_withdraws():
     c = claim("Something is 1.", "1", operands=[
-        ClaimOperand(card_id=uuid.uuid4(), field="oil", keys={})])
+        ClaimOperand(card_id=uuid.uuid4(), field="oil", row=0)])
     assert verify("", [c]).claims == []
 
 
 def test_a_missing_field_withdraws():
     c = claim("Something is 1.", "1", operands=[
         ClaimOperand(card_id=CARD, field="drilling_cost",
-                     keys={"region": "Atyrau"})])
+                     row=1)])
     assert verify("", [c]).claims == []
 
 
-def test_keys_matching_more_than_one_row_withdraw():
-    """An operand must address exactly one row. Two matches means the model
-    does not know which number it is quoting."""
-    rows = {CARD: [{"region": "A", "oil": 1}, {"region": "A", "oil": 2}]}
-    c = Claim(text="A is 1.", displayed_value="1", operation="exact",
-              operands=[ClaimOperand(card_id=CARD, field="oil",
-                                     keys={"region": "A"})])
-    assert verify_turn(say="", claims=[c], rows_by_card=rows).claims == []
+
 
 
 def test_a_null_value_withdraws():
     c = claim("Aktobe gas was 0.", "0", operands=[
-        ClaimOperand(card_id=CARD, field="gas", keys={"region": "Aktobe"})])
+        ClaimOperand(card_id=CARD, field="gas", row=2)])
     assert verify("", [c]).claims == []
 
 
@@ -236,3 +248,94 @@ def test_sources_name_the_card_a_figure_came_from():
     out = verify("", [claim("West Kazakhstan produced 12995827.76 barrels.",
                             "12995827.76")])
     assert out.claims[0].source_card_ids == [CARD]
+
+
+# -- magnitude words -----------------------------------------------------
+
+@pytest.mark.parametrize("text,shown", [
+    ("West Kazakhstan produced 13.0 million barrels.", "13.0M"),
+    ("West Kazakhstan produced about 13 million barrels.", "13M"),
+    ("West Kazakhstan produced 12995.83 thousand barrels.", "12995.83K"),
+], ids=["million", "bare-million", "thousand"])
+def test_a_magnitude_written_as_a_word_is_the_same_figure(text, shown):
+    """A model writes "13.0 million" in the sentence and "13.0M" as the
+    value. That is one number spelled two ways, and rejecting it would
+    withdraw correct answers for a formatting difference."""
+    assert len(verify("", [claim(text, shown, operation="rounded")]).claims) == 1
+
+
+def test_a_word_magnitude_that_is_still_wrong_is_withdrawn():
+    # Normalising the spelling must not normalise away the check.
+    out = verify("", [claim("West Kazakhstan produced 40 million barrels.",
+                            "40M", operation="rounded")])
+    assert out.claims == []
+
+
+def test_a_year_followed_by_a_word_is_not_treated_as_a_magnitude():
+    out = verify("Data runs through 2026-07-31.", [])
+    assert UNVERIFIED not in out.safe_say
+
+
+def test_a_decimal_point_is_not_a_sentence_boundary():
+    """Splitting on a bare "." chopped "25.4%" in half and left "4% of
+    total production" standing as an assertion with no evidence."""
+    out = verify("West Kazakhstan led, at 25.4% of total production.", [])
+    assert "4%" not in out.safe_say
+    assert "25.4" not in out.safe_say
+    assert "total production" not in out.safe_say
+
+
+def test_a_clean_sentence_survives_beside_a_scrubbed_one():
+    out = verify("West Kazakhstan leads. It produced 42000000 barrels.", [])
+    assert "West Kazakhstan leads." in out.safe_say
+    assert "42000000" not in out.safe_say
+
+
+def test_a_word_magnitude_in_unverified_prose_is_scrubbed():
+    """Stray figures are found in collapsed form ("7.92m"); matching that
+    against the original prose ("7.92 million") never fires, so the
+    unverified number survived into the answer."""
+    out = verify("Atyrau produced 7.92 million barrels.", [])
+    assert "7.92" not in out.safe_say
+    assert "million" not in out.safe_say
+    assert UNVERIFIED in out.safe_say
+
+
+def test_prose_may_round_what_the_declared_value_states_exactly():
+    """A model writes "7.92 million" in the sentence and the exact figure
+    as the value. Both are true; each is checked at its own precision."""
+    out = verify("", [Claim(
+        text="Atyrau produced 7.92 million barrels.",
+        displayed_value="7920646.47", operation="exact",
+        operands=[ClaimOperand(card_id=CARD, field="oil",
+                               row=1)])])
+    assert len(out.claims) == 1
+
+
+def test_rounded_prose_that_is_actually_wrong_is_still_withdrawn():
+    out = verify("", [Claim(
+        text="Atyrau produced 4.10 million barrels.",
+        displayed_value="7920646.47", operation="exact",
+        operands=[ClaimOperand(card_id=CARD, field="oil",
+                               row=1)])])
+    assert out.claims == []
+
+
+def test_a_share_stored_as_a_fraction_may_be_stated_as_a_percentage():
+    """A percent_of_total column holds 0.2644; a model writes "26.4%".
+    Same number, two conventions."""
+    rows = {CARD: [{"region": "West Kazakhstan", "share": 0.2644649630068269}]}
+    c = Claim(text="West Kazakhstan is 26.4% of the total.",
+              displayed_value="26.4%", operation="exact",
+              operands=[ClaimOperand(card_id=CARD, field="share", row=0)])
+    assert len(verify_turn(say="", claims=[c], rows_by_card=rows).claims) == 1
+
+
+def test_the_fraction_reading_needs_an_actual_percent_sign():
+    # Without a % the second reading is not offered, so a figure that is
+    # merely a hundred times off stays withdrawn.
+    rows = {CARD: [{"region": "A", "share": 0.2644}]}
+    c = Claim(text="A is 26.4 of the total.", displayed_value="26.4",
+              operation="exact",
+              operands=[ClaimOperand(card_id=CARD, field="share", row=0)])
+    assert verify_turn(say="", claims=[c], rows_by_card=rows).claims == []

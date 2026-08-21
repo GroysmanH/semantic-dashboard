@@ -7,7 +7,7 @@ from .bootstrap import ensure_seeded
 from .config import settings
 from .db import close_pools, open_pools
 from .migrations import run_migrations
-from .routes import ask, boards, cards
+from .routes import ask, boards, cards, chat
 
 
 @asynccontextmanager
@@ -33,6 +33,7 @@ app.add_middleware(
 app.include_router(boards.router)
 app.include_router(cards.router)
 app.include_router(ask.router)
+app.include_router(chat.router)
 
 
 @app.get("/health")

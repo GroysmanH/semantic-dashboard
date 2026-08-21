@@ -71,11 +71,30 @@ class CardRequest(StrictModel):
 
 class ClaimOperand(StrictModel):
     """Where a number came from: a card, a field, and the keys that pick out
-    exactly one row. The model supplies the address, never the value."""
+    exactly one row. The model supplies the address, never the value.
+
+    The row is addressed by position, not by matching column values.
+
+    Matching was tried first and failed against real models. Asked three
+    ways — a required field, a schema description, and an explicit prompt
+    rule — Haiku still sent an empty key set, which matches every row.
+    Tightening the type to forbid that did not help either: Anthropic's
+    constrained decoding does not enforce `minProperties`, so the model
+    emitted `{}` regardless and the whole turn was rejected client-side.
+
+    A position is mechanical. The rows are listed in the prompt in order,
+    the server holds the same snapshot for the whole turn, and an index
+    that does not exist is simply withdrawn.
+    """
 
     card_id: UUID
-    field: str = Field(min_length=1, max_length=120)
-    keys: dict[str, str | int | float | bool | None] = Field(default_factory=dict)
+    field: str = Field(
+        min_length=1, max_length=120,
+        description="The column holding the number, e.g. the measure column.")
+    row: int = Field(
+        ge=0,
+        description="Which row of that card the number is read from, "
+                    "counting from 0 in the order the rows are listed.")
 
 
 class Claim(StrictModel):
@@ -231,6 +250,36 @@ ChatAction = Annotated[
 
 
 class ChatModelResponse(StrictModel):
+    """The complete action contract.
+
+    This is the type the API and the generated TypeScript speak, and what a
+    resolved plan is validated against. It is deliberately *not* what gets
+    sent to a provider: see ChatReadOnlyResponse.
+    """
+
+    turn: ChatAction
+
+
+# Read-only actions only. This is what providers are actually asked for
+# while the chat cannot mutate anything.
+#
+# The full twelve-variant union cannot be used as a structured-output
+# schema: Anthropic rejects it with "the compiled grammar is too large",
+# and Gemini with a bare 400. Measured on claude-haiku-4-5, these four
+# variants compile at ~7.2KB while ten variants carrying no SemanticQuery
+# already fail at ~9KB, so the ceiling is the size of the compiled grammar
+# rather than the number of branches.
+#
+# Asking with the narrow schema is also the stronger design. A model that
+# cannot express a mutation cannot propose one it is not allowed to apply,
+# which beats letting it propose one and refusing afterwards.
+ReadOnlyAction = Annotated[
+    AnswerAction | RunQueryAction | ClarifyAction | RefuseAction,
+    Field(discriminator="action"),
+]
+
+
+class ChatReadOnlyResponse(StrictModel):
     """What providers are asked for.
 
     LLMClient.ask takes `type[T] where T: BaseModel`, and an Annotated union
@@ -238,7 +287,7 @@ class ChatModelResponse(StrictModel):
     providers instead of forking the seam.
     """
 
-    turn: ChatAction
+    turn: ReadOnlyAction
 
 
 # -- transport envelopes -------------------------------------------------

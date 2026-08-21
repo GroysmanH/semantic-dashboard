@@ -154,7 +154,7 @@ def test_a_claim_needs_at_least_one_operand():
 
 
 def test_a_claim_operand_names_a_card_and_a_field():
-    operand = ClaimOperand(card_id=CARD, field="oil", keys={"region": "Atyrau"})
+    operand = ClaimOperand(card_id=CARD, field="oil", row=0)
     assert operand.field == "oil"
 
 
@@ -177,3 +177,52 @@ def test_card_requests_bound_free_text():
         CardRequest(request_id="r1", question="", title="Oil")
     with pytest.raises(ValidationError):
         CardRequest(request_id="r1", question="x" * 501, title="Oil")
+
+
+# -- what actually compiles as a provider grammar ------------------------
+
+def test_the_read_only_union_is_what_providers_are_asked_for():
+    """The full twelve-variant union is rejected by Anthropic with "the
+    compiled grammar is too large" and by Gemini with a bare 400. Measured
+    on claude-haiku-4-5: these four variants compile, ten variants carrying
+    no SemanticQuery already do not."""
+    from app.chat.schema import ChatReadOnlyResponse
+
+    for action in ["answer", "run_query", "clarify", "refuse"]:
+        payload = dict(VALID[[v["action"] for v in VALID].index(action)])
+        assert ChatReadOnlyResponse(turn=payload).turn.action == action
+
+
+@pytest.mark.parametrize("payload", [v for v in VALID if v["action"] not in
+                                     {"answer", "run_query", "clarify",
+                                      "refuse"}],
+                         ids=lambda p: p["action"])
+def test_a_mutation_cannot_be_expressed_in_the_read_only_schema(payload):
+    from app.chat.schema import ChatReadOnlyResponse
+
+    with pytest.raises(ValidationError):
+        ChatReadOnlyResponse(turn=payload)
+
+
+def test_the_read_only_schema_stays_a_narrow_union():
+    """A canary, not a proof.
+
+    Measured against claude-haiku-4-5: four variants compiled at 7.2KB and
+    again at 8.1KB once field descriptions were added, while ten variants
+    carrying no SemanticQuery failed at 9.0KB. So size alone does not
+    decide it — the number of branches dominates, and descriptions appear
+    to cost nothing. This asserts the branch count, which is the variable
+    that actually moved, and flags size only as something to re-test live.
+    """
+    import json
+
+    from app.chat.schema import ChatReadOnlyResponse
+
+    schema = ChatReadOnlyResponse.model_json_schema()
+    branches = schema["properties"]["turn"]["oneOf"]
+    assert len(branches) == 4, (
+        "the provider-facing union grew a branch; re-run a live call before "
+        "trusting it, because the grammar ceiling is not a byte count")
+
+    size = len(json.dumps(schema))
+    assert size < 12_000, f"schema grew to {size} bytes; re-test the providers"

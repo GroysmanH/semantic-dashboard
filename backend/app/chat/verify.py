@@ -39,6 +39,19 @@ NUMBER = re.compile(
 # Removed before scanning prose: an ISO date is not a quantity being claimed.
 DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b|\b\d{4}-\d{2}\b|\b(19|20)\d{2}\b")
 
+# "13.0 million" and "13.0M" are the same figure spelled two ways, and a
+# model routinely writes one in the sentence and the other in the value.
+# Collapsing the word form first makes the comparison about the number
+# rather than about the spelling.
+WORD_SCALE = re.compile(
+    r"(\d)\s+(thousand|million|billion)\b", re.IGNORECASE)
+WORD_SUFFIX = {"thousand": "k", "million": "m", "billion": "b"}
+
+# Sentence boundaries need whitespace after the stop, so the decimal point
+# in "25.4%" is not mistaken for the end of a sentence. Splitting on a bare
+# "." chops a figure in half and leaves "4% of total production" behind.
+SENTENCE = re.compile(r"(?<=[.!?])\s+")
+
 TWO_OPERAND = {"difference", "ratio", "percentage", "percentage_change"}
 
 
@@ -70,7 +83,7 @@ def _to_decimal(value: Any) -> Decimal | None:
         return None
 
 
-def _parse_displayed(text: str) -> tuple[Decimal, int, Decimal] | None:
+def _parse_displayed(text: str) -> tuple[Decimal, int, Decimal, bool] | None:
     """Returns the value, the decimal places actually shown, and the
     magnitude the suffix multiplied by.
 
@@ -97,29 +110,24 @@ def _parse_displayed(text: str) -> tuple[Decimal, int, Decimal] | None:
         return None
 
     places = -magnitude.as_tuple().exponent
-    return magnitude * scale, max(places, 0), scale
+    return magnitude * scale, max(places, 0), scale, percent
 
 
 def _resolve(operand: ClaimOperand,
              rows_by_card: dict[UUID, list[dict]]) -> Decimal | None:
-    """A value only counts when the keys pick out exactly one row.
+    """Read the value at the addressed position.
 
-    Two matches means the model does not know which number it is quoting,
-    and guessing between them is how a plausible wrong figure gets stated.
+    The index refers to the same snapshot that was put in the prompt, held
+    for the whole turn, so there is nothing to match and nothing to guess
+    between.
     """
     rows = rows_by_card.get(operand.card_id)
-    if rows is None:
+    if not rows or operand.row >= len(rows):
         return None
-
-    matches = [
-        row for row in rows
-        if all(str(row.get(k)) == str(v) for k, v in operand.keys.items())
-    ]
-    if len(matches) != 1:
+    row = rows[operand.row]
+    if operand.field not in row:
         return None
-    if operand.field not in matches[0]:
-        return None
-    return _to_decimal(matches[0][operand.field])
+    return _to_decimal(row[operand.field])
 
 
 def _compute(operation: str, values: list[Decimal]) -> Decimal | None:
@@ -157,8 +165,28 @@ def _matches(shown: Decimal, places: int, scale: Decimal,
     return abs(computed - shown) <= tolerance
 
 
+def _collapse_word_scales(text: str) -> str:
+    return WORD_SCALE.sub(
+        lambda m: m.group(1) + WORD_SUFFIX[m.group(2).lower()], text)
+
+
+def _holds(shown: Decimal, places: int, scale: Decimal, percent: bool,
+           computed: Decimal) -> bool:
+    """A figure written as a percentage may sit in the data as a fraction.
+
+    A share column holds 0.2644 and a model writes "26.4%". Those are the
+    same number in two conventions, and rejecting one of them withdraws a
+    correct answer. Only a literal actually carrying a % sign is given the
+    second reading, so this cannot quietly rescue an unrelated figure that
+    happens to be a hundred times off.
+    """
+    if _matches(shown, places, scale, computed):
+        return True
+    return percent and _matches(shown, places, scale, computed * 100)
+
+
 def _numbers_in(text: str) -> list[str]:
-    return NUMBER.findall(DATE.sub(" ", text))
+    return NUMBER.findall(_collapse_word_scales(DATE.sub(" ", text)))
 
 
 def verify_turn(*, say: str, claims: list[Claim],
@@ -170,14 +198,14 @@ def verify_turn(*, say: str, claims: list[Claim],
         parsed = _parse_displayed(claim.displayed_value)
         found = _numbers_in(claim.text)
 
-        # One figure per sentence, and it must be the one being claimed, so
-        # every number a reader sees is individually checkable.
+        # One figure per sentence, so every number a reader sees is
+        # individually checkable.
         if parsed is None or len(found) != 1:
             withdrawn.append(claim.text)
             continue
 
-        shown_in_text = _parse_displayed(found[0])
-        if shown_in_text is None or shown_in_text[0] != parsed[0]:
+        in_text = _parse_displayed(found[0])
+        if in_text is None:
             withdrawn.append(claim.text)
             continue
 
@@ -191,8 +219,14 @@ def verify_turn(*, say: str, claims: list[Claim],
             withdrawn.append(claim.text)
             continue
 
-        shown, places, scale = parsed
-        if not _matches(shown, places, scale, computed):
+        # Both the figure in the sentence and the declared value are
+        # checked, each at the precision it states. Requiring them to be
+        # the same string instead would withdraw a correct claim whenever a
+        # model writes "7.92 million" in prose and the exact figure as the
+        # value — which is good prose, not a wrong answer. What the reader
+        # sees is the sentence, so that is the one that must hold.
+        if not all(_holds(v, p, sc, pct, computed)
+                   for v, p, sc, pct in (parsed, in_text)):
             withdrawn.append(claim.text)
             continue
 
@@ -212,12 +246,24 @@ def verify_turn(*, say: str, claims: list[Claim],
 
     safe = say
     for text in withdrawn:
-        safe = safe.replace(text, "").strip()
+        safe = safe.replace(text, " ")
 
+    # Drop whole sentences rather than excising figures from them: a
+    # sentence with its number cut out still asserts something, and now
+    # asserts it without the evidence.
     if stray:
-        for n in stray:
-            safe = re.sub(rf"[^.!?]*{re.escape(n)}[^.!?]*[.!?]?", "", safe)
-        safe = re.sub(r"\s+", " ", safe).strip()
+        # Compare like with like. Stray numbers are found in collapsed form
+        # ("7.92m"), so substring-matching them against the original prose
+        # ("7.92 million") never fires and the unverified figure survives.
+        # Re-scan each sentence through the same function instead.
+        stray_set = set(stray)
+        kept_sentences = [
+            sentence for sentence in SENTENCE.split(safe)
+            if not stray_set & set(_numbers_in(sentence))
+        ]
+        safe = " ".join(kept_sentences)
+
+    safe = re.sub(r"\s+", " ", safe).strip()
 
     if (withdrawn or stray) and UNVERIFIED not in safe:
         safe = f"{safe} {UNVERIFIED}".strip()
