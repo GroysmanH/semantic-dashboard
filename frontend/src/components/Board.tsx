@@ -141,12 +141,16 @@ export default function Board({
   boardId,
   examples,
   provider,
+  providers,
   strongAvailable,
+  onProviderChange,
 }: {
   boardId: string;
   examples: string[];
   provider: Provider;
+  providers: Provider[];
   strongAvailable: boolean;
+  onProviderChange: (p: Provider) => void;
 }) {
   const [board, setBoard] = useState<BoardT | null>(null);
   const [canonicalLayout, setCanonicalLayout] = useState<Record<string, Layout>>({});
@@ -466,7 +470,9 @@ export default function Board({
                 card={card}
                 examples={examples}
                 provider={provider}
+                providers={providers}
                 strongAvailable={strongAvailable}
+                onProviderChange={onProviderChange}
                 selected={selectedCardId === card.id}
                 sqlOpen={openSqlCardId === card.id}
                 resizing={resizingCardId === card.id}

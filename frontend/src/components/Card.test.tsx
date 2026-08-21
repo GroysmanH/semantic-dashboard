@@ -55,6 +55,8 @@ function brokenCard(): CardT {
 const baseProps = {
   examples: [],
   provider: "gemini" as const,
+    providers: ["gemini" as const],
+    onProviderChange: vi.fn(),
     strongAvailable: true,
   selected: false,
   sqlOpen: false,

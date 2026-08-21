@@ -17,6 +17,14 @@ import {
 import type { BoardSummary } from "../api/client";
 import SortableTab from "./SortableTab";
 
+function PencilIcon() {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden="true">
+      <path d="M13.6 3.2a1.6 1.6 0 0 1 2.3 0l.9.9a1.6 1.6 0 0 1 0 2.3l-7.9 7.9-3.6.9.9-3.6 7.4-8.4Z" />
+    </svg>
+  );
+}
+
 function PlusIcon() {
   return (
     <svg viewBox="0 0 20 20" aria-hidden="true">
@@ -149,10 +157,22 @@ export default function TabBar({
                         role="tab"
                         aria-selected={active}
                         className="tab-label"
+                        title="Double-click to rename"
                         onClick={() => onSelect(board.id)}
                         onDoubleClick={() => startRename(board)}
                       >
                         {board.title || "Untitled"}
+                      </button>
+                      {/* Double-click alone is not discoverable: nothing on
+                          screen says a tab can be renamed at all. */}
+                      <button
+                        type="button"
+                        className="tab-rename-button"
+                        aria-label={`Rename ${board.title}`}
+                        disabled={busy}
+                        onClick={() => startRename(board)}
+                      >
+                        <PencilIcon />
                       </button>
                       <button
                         type="button"

@@ -22,7 +22,9 @@ export default function Card({
   card,
   examples,
   provider,
+  providers,
   strongAvailable,
+  onProviderChange,
   selected,
   sqlOpen,
   resizing,
@@ -36,7 +38,9 @@ export default function Card({
   card: CardT;
   examples: string[];
   provider: Provider;
+  providers: Provider[];
   strongAvailable: boolean;
+  onProviderChange: (p: Provider) => void;
   selected: boolean;
   sqlOpen: boolean;
   resizing: boolean;
@@ -236,7 +240,10 @@ export default function Card({
         {state === "empty" && (
           <EmptyCard
             examples={examples}
+            provider={provider}
+            providers={providers}
             strongAvailable={strongAvailable}
+            onProviderChange={onProviderChange}
             busy={busy}
             note={askNote}
             onAsk={async (question, hard) => {

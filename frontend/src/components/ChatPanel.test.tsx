@@ -152,7 +152,7 @@ describe("ChatPanel", () => {
   it("switches provider", async () => {
     const user = userEvent.setup();
     const props = setup();
-    await user.click(screen.getByRole("radio", { name: "DeepSeek" }));
+    await user.selectOptions(screen.getByLabelText("Model"), "nvidia");
     expect(props.onProviderChange).toHaveBeenCalledWith("nvidia");
   });
 

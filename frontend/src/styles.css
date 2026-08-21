@@ -151,6 +151,15 @@ body {
 .tab-active .tab-label { color: var(--ink); }
 .tab-label:hover { color: var(--ink); }
 
+.tab-rename-button {
+  padding: 0.15rem 0.2rem;
+  opacity: 0;
+}
+.tab:hover .tab-rename-button,
+.tab-rename-button:focus-visible { opacity: 1; }
+.tab-rename-button:hover { color: var(--accent); }
+.tab-rename-button svg { width: 11px; height: 11px; fill: currentColor; }
+
 .tab-close {
   padding: 0.1rem 0.3rem;
   font-size: 13px;

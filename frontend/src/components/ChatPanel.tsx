@@ -6,15 +6,7 @@ import { MAX_WIDTH, MIN_WIDTH } from "../state/preferences";
 import AskBar from "./AskBar";
 import ChatMessage from "./ChatMessage";
 import ChatResult from "./ChatResult";
-
-/** Named by the model, not the vendor: "DeepSeek" is what someone asked
- *  for, even though the key and the hosting are NVIDIA's. */
-const PROVIDER_LABEL: Record<Provider, string> = {
-  anthropic: "Claude",
-  gemini: "Gemini",
-  openai: "GPT",
-  nvidia: "DeepSeek",
-};
+import ProviderPicker, { PROVIDER_LABEL } from "./ProviderPicker";
 
 export interface ProviderCapability {
   default_model: string;
@@ -244,24 +236,12 @@ export default function ChatPanel({
           onSubmit={send}
         />
 
-        {providers.length > 1 && (
-          <div className="provider" role="radiogroup" aria-label="Model provider">
-            <span className="eyebrow">Ask</span>
-            {providers.map((p) => (
-              <button
-                key={p}
-                type="button"
-                role="radio"
-                aria-checked={provider === p}
-                className={provider === p ? "on" : ""}
-                onClick={() => onProviderChange(p)}
-                disabled={busy}
-              >
-                {PROVIDER_LABEL[p] ?? p}
-              </button>
-            ))}
-          </div>
-        )}
+        <ProviderPicker
+          provider={provider}
+          providers={providers}
+          busy={busy}
+          onChange={onProviderChange}
+        />
 
         <label
           className="harder"

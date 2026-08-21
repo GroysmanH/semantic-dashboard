@@ -28,6 +28,9 @@ CREATE TABLE app.card (
     cache          jsonb,
     ttl_seconds    integer NOT NULL DEFAULT 900,
     previous       jsonb,                   -- one-step undo
+    -- {question, asked} while a clarifying question is outstanding, so the
+    -- answer to it has something to attach to. Cleared once resolved.
+    pending_clarification jsonb,
     deleted_at     timestamptz,
     created_at     timestamptz NOT NULL DEFAULT now(),
     updated_at     timestamptz NOT NULL DEFAULT now()

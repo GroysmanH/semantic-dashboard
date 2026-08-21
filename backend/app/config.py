@@ -27,6 +27,14 @@ class Settings(BaseSettings):
     chat_transient_ttl_seconds: int = Field(default=900, gt=0)
     chat_tombstone_days: int = Field(default=30, ge=1, le=30)
 
+    # How long to wait on a provider before giving up. The vendor SDKs
+    # default to ten minutes and retry twice on top, so an endpoint that is
+    # merely down wedges a card or a chat turn for half an hour with
+    # nothing on screen. Failing in a minute with a sentence is better than
+    # succeeding in thirty.
+    llm_timeout_seconds: float = Field(default=60.0, gt=0)
+    llm_max_retries: int = Field(default=1, ge=0, le=5)
+
     anthropic_api_key: str = ""
     google_api_key: str = ""
     openai_api_key: str = ""

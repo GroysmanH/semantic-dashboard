@@ -119,7 +119,7 @@ describe("Board visual-first interactions", () => {
         },
       });
     });
-    render(<Board boardId="board-1" examples={[]} provider="anthropic" strongAvailable />);
+    render(<Board boardId="board-1" examples={[]} provider="anthropic" providers={["anthropic"]} onProviderChange={() => {}} strongAvailable />);
     await screen.findByRole("heading", { name: "Oil by month" });
 
     await user.click(screen.getByRole("heading", { name: "Oil by month" }));
@@ -154,7 +154,7 @@ describe("Board visual-first interactions", () => {
 
   it("closes transient panels at move intent so the selected card can be dragged", async () => {
     const user = userEvent.setup();
-    render(<Board boardId="board-1" examples={[]} provider="anthropic" strongAvailable />);
+    render(<Board boardId="board-1" examples={[]} provider="anthropic" providers={["anthropic"]} onProviderChange={() => {}} strongAvailable />);
     await user.click(await screen.findByRole("heading", { name: "Oil by month" }));
     expect(await screen.findByLabelText("Change this chart…")).toBeVisible();
     expect(grid.props.isResizable).toBe(false);
@@ -169,7 +169,7 @@ describe("Board visual-first interactions", () => {
   });
 
   it("moves a directly displaced card into the vacated slot instead of leaving a hole", async () => {
-    render(<Board boardId="board-1" examples={[]} provider="anthropic" strongAvailable />);
+    render(<Board boardId="board-1" examples={[]} provider="anthropic" providers={["anthropic"]} onProviderChange={() => {}} strongAvailable />);
     await screen.findByRole("heading", { name: "Oil by month" });
 
     const before = grid.props.layout as Array<Layout & { i: string }>;
@@ -188,7 +188,7 @@ describe("Board visual-first interactions", () => {
   });
 
   it("keeps neighboring cards still while a dragged card floats over them", async () => {
-    render(<Board boardId="board-1" examples={[]} provider="anthropic" strongAvailable />);
+    render(<Board boardId="board-1" examples={[]} provider="anthropic" providers={["anthropic"]} onProviderChange={() => {}} strongAvailable />);
     await screen.findByRole("heading", { name: "Oil by month" });
 
     const before = grid.props.layout as Array<Layout & { i: string }>;
@@ -207,7 +207,7 @@ describe("Board visual-first interactions", () => {
       readyCard("card-2", "Wide card", { x: 4, y: 4, w: 4, h: 4 }),
       readyCard("card-3", "Origin blocker", { x: 0, y: 7, w: 4, h: 2 }),
     ];
-    render(<Board boardId="board-1" examples={[]} provider="anthropic" strongAvailable />);
+    render(<Board boardId="board-1" examples={[]} provider="anthropic" providers={["anthropic"]} onProviderChange={() => {}} strongAvailable />);
     await screen.findByRole("heading", { name: "Mover" });
 
     const before = grid.props.layout as Array<Layout & { i: string }>;
@@ -233,7 +233,7 @@ describe("Board visual-first interactions", () => {
       readyCard("card-2", "Tall card", { x: 4, y: 4, w: 4, h: 4 }),
       readyCard("card-3", "Origin blocker", { x: 4, y: 11, w: 4, h: 2 }),
     ];
-    render(<Board boardId="board-1" examples={[]} provider="anthropic" strongAvailable />);
+    render(<Board boardId="board-1" examples={[]} provider="anthropic" providers={["anthropic"]} onProviderChange={() => {}} strongAvailable />);
     await screen.findByRole("heading", { name: "Mover" });
 
     const before = grid.props.layout as Array<Layout & { i: string }>;
@@ -254,7 +254,7 @@ describe("Board visual-first interactions", () => {
   });
 
   it("never persists a card position that was displaced only by a transient panel", async () => {
-    render(<Board boardId="board-1" examples={[]} provider="anthropic" strongAvailable />);
+    render(<Board boardId="board-1" examples={[]} provider="anthropic" providers={["anthropic"]} onProviderChange={() => {}} strongAvailable />);
     await screen.findByRole("heading", { name: "Oil by month" });
 
     const before = grid.props.layout as Array<Layout & { i: string }>;
@@ -274,7 +274,7 @@ describe("Board visual-first interactions", () => {
 
   it("does not select a card through chart pointer activity", async () => {
     const user = userEvent.setup();
-    render(<Board boardId="board-1" examples={[]} provider="anthropic" strongAvailable />);
+    render(<Board boardId="board-1" examples={[]} provider="anthropic" providers={["anthropic"]} onProviderChange={() => {}} strongAvailable />);
     await screen.findByRole("heading", { name: "Oil by month" });
 
     await user.click(screen.getAllByTestId("chart")[0]);
@@ -289,7 +289,7 @@ describe("Board visual-first interactions", () => {
       chart_type: "big_number",
     };
 
-    render(<Board boardId="board-1" examples={[]} provider="anthropic" strongAvailable />);
+    render(<Board boardId="board-1" examples={[]} provider="anthropic" providers={["anthropic"]} onProviderChange={() => {}} strongAvailable />);
 
     expect(await screen.findByText(
       "Requested chart wasn’t useful for this result; showing a KPI instead.",
@@ -312,7 +312,7 @@ describe("Board visual-first interactions", () => {
       },
     };
 
-    render(<Board boardId="board-1" examples={[]} provider="anthropic" strongAvailable />);
+    render(<Board boardId="board-1" examples={[]} provider="anthropic" providers={["anthropic"]} onProviderChange={() => {}} strongAvailable />);
 
     expect(await screen.findByText("This result is valid, but too dense to visualize.")).toBeVisible();
     expect(screen.queryByText("This card no longer matches the semantic layer.")).not.toBeInTheDocument();
@@ -337,7 +337,7 @@ describe("Board visual-first interactions", () => {
     render(
       <div>
         <button type="button">Outside board</button>
-        <Board boardId="board-1" examples={[]} provider="anthropic" strongAvailable />
+        <Board boardId="board-1" examples={[]} provider="anthropic" providers={["anthropic"]} onProviderChange={() => {}} strongAvailable />
       </div>,
     );
     const card = await screen.findByRole("article", { name: "Oil by month card" });
@@ -354,7 +354,7 @@ describe("Board visual-first interactions", () => {
 
   it("keeps only one controlled SQL drawer open and closes it with Escape", async () => {
     const user = userEvent.setup();
-    render(<Board boardId="board-1" examples={[]} provider="anthropic" strongAvailable />);
+    render(<Board boardId="board-1" examples={[]} provider="anthropic" providers={["anthropic"]} onProviderChange={() => {}} strongAvailable />);
     const toggles = await screen.findAllByRole("button", { name: "Compiled SQL" });
 
     await user.click(toggles[0]);
@@ -385,7 +385,7 @@ describe("Board visual-first interactions", () => {
         },
       };
     });
-    render(<Board boardId="board-1" examples={[]} provider="anthropic" strongAvailable />);
+    render(<Board boardId="board-1" examples={[]} provider="anthropic" providers={["anthropic"]} onProviderChange={() => {}} strongAvailable />);
     const sql = (await screen.findAllByRole("button", { name: "Compiled SQL" }))[0];
     await user.click(sql);
     await waitFor(() => {
@@ -408,7 +408,7 @@ describe("Board visual-first interactions", () => {
 
   it("removes immediately from the compact overflow menu", async () => {
     const user = userEvent.setup();
-    render(<Board boardId="board-1" examples={[]} provider="anthropic" strongAvailable />);
+    render(<Board boardId="board-1" examples={[]} provider="anthropic" providers={["anthropic"]} onProviderChange={() => {}} strongAvailable />);
     const card = (await screen.findByRole("heading", { name: "Oil by month" })).closest("article")!;
 
     await user.click(within(card).getByRole("button", { name: "Card actions" }));
@@ -425,7 +425,7 @@ describe("Board visual-first interactions", () => {
       return created;
     });
 
-    render(<Board boardId="board-1" examples={[]} provider="anthropic" strongAvailable />);
+    render(<Board boardId="board-1" examples={[]} provider="anthropic" providers={["anthropic"]} onProviderChange={() => {}} strongAvailable />);
     await screen.findByRole("heading", { name: "Oil by month" });
     await user.click(screen.getByRole("button", { name: "Add card" }));
 
@@ -442,7 +442,7 @@ describe("Board visual-first interactions", () => {
           <div id="board-primary-action" />
           <h1>Semantic Dashboard</h1>
         </header>
-        <Board boardId="board-1" examples={[]} provider="anthropic" strongAvailable />
+        <Board boardId="board-1" examples={[]} provider="anthropic" providers={["anthropic"]} onProviderChange={() => {}} strongAvailable />
       </>,
     );
 
@@ -461,7 +461,7 @@ describe("Board visual-first interactions", () => {
           <h1>Semantic Dashboard</h1>
           <div id="board-export-action" />
         </header>
-        <Board boardId="board-1" examples={[]} provider="anthropic" strongAvailable />
+        <Board boardId="board-1" examples={[]} provider="anthropic" providers={["anthropic"]} onProviderChange={() => {}} strongAvailable />
       </>,
     );
 
@@ -481,7 +481,7 @@ describe("Board visual-first interactions", () => {
       .mockRejectedValueOnce(new Error("Board reload failed"));
     apiMocks.addCard.mockResolvedValue(created);
 
-    render(<Board boardId="board-1" examples={[]} provider="anthropic" strongAvailable />);
+    render(<Board boardId="board-1" examples={[]} provider="anthropic" providers={["anthropic"]} onProviderChange={() => {}} strongAvailable />);
     await screen.findByRole("heading", { name: "Oil by month" });
     await user.click(screen.getByRole("button", { name: "Add card" }));
 

@@ -77,6 +77,15 @@ class LLMError(RuntimeError):
     noise to the person reading it."""
 
 
+class LLMTimeout(LLMError):
+    """The provider did not answer inside the configured budget.
+
+    Distinct from a transport failure because the remedy differs: a timeout
+    usually means the vendor is degraded, and the useful next step is
+    another provider rather than another attempt.
+    """
+
+
 class LLMRateLimited(LLMError):
     """Terminal for a single request, but not for a batch.
 
@@ -140,7 +149,10 @@ class AnthropicClient:
         if self._sdk is None:
             import anthropic
             try:
-                self._sdk = anthropic.Anthropic()   # reads ANTHROPIC_API_KEY
+                # Reads ANTHROPIC_API_KEY from the environment.
+                self._sdk = anthropic.Anthropic(
+                    timeout=settings.llm_timeout_seconds,
+                    max_retries=settings.llm_max_retries)
             except Exception as exc:                # noqa: BLE001
                 raise LLMError("No Anthropic credential is configured. Put "
                                "ANTHROPIC_API_KEY in .env and restart.") from exc
@@ -283,6 +295,11 @@ class GeminiClient:
         except errors.APIError as exc:
             raise _error_for(exc.code or 500, self.model, self.key_var) from exc
         except Exception as exc:                    # noqa: BLE001
+            if "timeout" in type(exc).__name__.lower():
+                raise LLMTimeout(
+                    f"{self.model} did not answer within "
+                    f"{settings.llm_timeout_seconds:.0f}s. The provider may "
+                    f"be degraded; try another one.") from exc
             raise LLMError("The model service could not be reached. "
                            "Check the network and try again.") from exc
 
@@ -353,8 +370,11 @@ class _OpenAICompatible:
         if self._sdk is None:
             import openai
             try:
-                self._sdk = openai.OpenAI(api_key=self._api_key() or None,
-                                          base_url=self.base_url)
+                self._sdk = openai.OpenAI(
+                    api_key=self._api_key() or None,
+                    base_url=self.base_url,
+                    timeout=settings.llm_timeout_seconds,
+                    max_retries=settings.llm_max_retries)
             except Exception as exc:                # noqa: BLE001
                 raise LLMError(f"No {self.provider} credential is configured. "
                                f"Put {self.key_var} in .env and restart.") from exc
@@ -397,6 +417,14 @@ class _OpenAICompatible:
             else:
                 response = self._client().chat.completions.create(
                     response_format={"type": "json_object"}, **kwargs)
+        except openai.APITimeoutError as exc:
+            # NVIDIA NIM in particular can stop serving a model entirely,
+            # and without this the SDK's own default waits ten minutes and
+            # retries twice before saying so.
+            raise LLMTimeout(
+                f"{self.model} did not answer within "
+                f"{settings.llm_timeout_seconds:.0f}s. The provider may be "
+                f"degraded; try another one.") from exc
         except openai.LengthFinishReasonError as exc:
             raise LLMError(
                 f"{self.model} used its whole token budget before finishing "

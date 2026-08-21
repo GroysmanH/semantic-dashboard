@@ -86,7 +86,8 @@ def deterministic_ambiguity(question: str, entity_name: str,
 def ask(question: str, layer: Layer, client: LLMClient,
         synonyms: dict[str, dict[str, list[str]]] | None = None,
         current: SemanticQuery | None = None,
-        today: date | None = None) -> AskOutcome:
+        today: date | None = None,
+        clarifying: dict | None = None) -> AskOutcome:
     """`current` carries an existing card's query for refinement: the card's
     state is the context, which sidesteps multi-turn drift entirely.
 
@@ -103,6 +104,19 @@ def ask(question: str, layer: Layer, client: LLMClient,
     today = today or date.today()
 
     body = question
+    if clarifying:
+        # A clarifying question with no memory of itself is worse than not
+        # asking: the card asks "oil or gas?", the person types "oil", and
+        # the next request arrives as a single word attached to nothing.
+        # The card carries the exchange, which keeps the existing rule that
+        # card state is the context rather than a conversation.
+        body = (f"You asked this clarifying question: "
+                f"{clarifying.get('question', '')!r}\n"
+                f"It was about this original request: "
+                f"{clarifying.get('asked', '')!r}\n\n"
+                f"They have now answered: {question}\n\n"
+                f"Build the query they originally asked for, using their "
+                f"answer to resolve what was ambiguous. Do not ask again.")
     if current is not None:
         body = (f"The card currently shows this semantic query:\n"
                 f"{current.model_dump_json(indent=2)}\n\n"
@@ -152,10 +166,10 @@ def ask(question: str, layer: Layer, client: LLMClient,
         # Deterministic guard first: it does not depend on the model
         # volunteering that it was unsure.
         flagged = None
-        if synonyms:
+        if synonyms and not clarifying:
             flagged = deterministic_ambiguity(
                 question, answer.semantic_query.entity, synonyms, layer)
-        flagged = flagged or answer.ambiguity
+        flagged = flagged or (None if clarifying else answer.ambiguity)
 
         if flagged is not None:
             return AskOutcome(clarify=flagged.question, attempts=attempts)

@@ -652,7 +652,14 @@ def test_fresh_install_sql_and_upgrade_migration_converge_securely(
         cur.execute((init_dir / "03_app.sql").read_text(encoding="utf-8"))
         cur.execute((init_dir / "04_grants.sql").read_text(encoding="utf-8"))
 
-    assert run_migrations(disposable_admin_dsn, _production_migration_dir()) == ["0001"]
+    # Every shipped migration, whatever the set currently is. Pinning the
+    # literal ["0001"] made adding a migration a test failure rather than a
+    # test, while saying nothing about whether it applied cleanly.
+    expected = sorted(p.stem.split("_")[0]
+                      for p in _production_migration_dir().glob("*.sql"))
+    assert run_migrations(disposable_admin_dsn,
+                          _production_migration_dir()) == expected
+    # Idempotent: a second pass over a converged database applies nothing.
     assert run_migrations(disposable_admin_dsn, _production_migration_dir()) == []
 
     with psycopg.connect(disposable_admin_dsn) as conn, conn.cursor() as cur:

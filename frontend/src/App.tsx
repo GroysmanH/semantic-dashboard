@@ -234,6 +234,8 @@ export default function App() {
             boardId={boardId}
             examples={examples}
             provider={provider}
+            providers={providers.available}
+            onProviderChange={setProvider}
             strongAvailable={
               providers.capabilities?.[provider]?.strong_available ?? true
             }

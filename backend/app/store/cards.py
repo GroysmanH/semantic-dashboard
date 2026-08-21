@@ -23,8 +23,8 @@ BOARD_COLUMNS = (
 )
 CARD_COLUMNS = (
     "id, board_id, title, semantic_query, chart_hint, vega_spec, prompt, "
-    "state, layout, cache, ttl_seconds, previous, deleted_at, created_at, "
-    "updated_at"
+    "state, layout, cache, ttl_seconds, previous, pending_clarification, "
+    "deleted_at, created_at, updated_at"
 )
 
 
@@ -347,8 +347,10 @@ def update_card(
     allowed = {
         "title", "semantic_query", "chart_hint", "vega_spec", "prompt",
         "state", "layout", "cache", "ttl_seconds", "previous",
+        "pending_clarification",
     }
-    json_cols = {"semantic_query", "vega_spec", "layout", "cache", "previous"}
+    json_cols = {"semantic_query", "vega_spec", "layout", "cache", "previous",
+                 "pending_clarification"}
     non_substantive = {"cache", "state", "vega_spec"}
 
     sets: list[str] = []

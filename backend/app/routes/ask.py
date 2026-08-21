@@ -144,6 +144,10 @@ def ask(body: AskIn):
     card = store.get_card(body.card_id) if body.card_id else None
     current = (SemanticQuery.model_validate(card["semantic_query"])
                if card and card.get("semantic_query") else None)
+    # An outstanding clarifying question, so the answer to it has something
+    # to attach to. Without this the card asks "oil or gas?", the person
+    # types "oil", and the next request is a single word with no subject.
+    clarifying = card.get("pending_clarification") if card else None
 
     try:
         client = make_client(body.provider, hard=body.hard)
@@ -153,7 +157,8 @@ def ask(body: AskIn):
 
     try:
         outcome = ask_model(body.question, LAYER, client,
-                            synonyms=SYNONYMS, current=current)
+                            synonyms=SYNONYMS, current=current,
+                            clarifying=clarifying)
     except LLMRateLimited as exc:
         # A person waiting on a card wants to be told, not held. The eval
         # makes the other choice and waits.
@@ -162,7 +167,19 @@ def ask(body: AskIn):
     if outcome.refusal:
         return {"state": "refused", "message": outcome.refusal, **who}
     if outcome.clarify:
+        if body.card_id:
+            store.update_card(body.card_id, pending_clarification={
+                "question": outcome.clarify,
+                # The original request, not the clarifying question: that
+                # is what has to be rebuilt once the ambiguity is resolved.
+                "asked": (clarifying or {}).get("asked", body.question),
+            })
         return {"state": "clarify", "message": outcome.clarify, **who}
+
+    # Resolved: the exchange has done its job and must not colour the next
+    # unrelated question asked of this card.
+    if clarifying and body.card_id:
+        store.update_card(body.card_id, pending_clarification=None)
 
     r = render(outcome.query, LAYER, chart_hint=outcome.chart_hint,
                title=(card["title"] if current is not None and card.get("title")
