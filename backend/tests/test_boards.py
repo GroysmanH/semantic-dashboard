@@ -8,7 +8,9 @@ cards.
 """
 
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
+from threading import Barrier
 
 import pytest
 from fastapi.testclient import TestClient
@@ -294,6 +296,23 @@ def test_two_cards_created_for_one_board_receive_distinct_slots(client):
     assert (first["layout"]["x"], first["layout"]["y"]) != (
         second["layout"]["x"], second["layout"]["y"],
     )
+
+
+def test_concurrent_card_creates_serialize_without_slot_collision(client):
+    board = make_board(client, "concurrent slots")
+    board_id = uuid.UUID(board["id"])
+    ready = Barrier(2)
+
+    def create_after_barrier():
+        ready.wait(timeout=5)
+        return store.create_card(board_id)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(create_after_barrier) for _ in range(2)]
+        cards = [future.result(timeout=10) for future in futures]
+
+    assert all(cards)
+    assert len({(card["layout"]["x"], card["layout"]["y"]) for card in cards}) == 2
 
 
 def test_creating_a_card_for_an_unknown_board_is_404(client):

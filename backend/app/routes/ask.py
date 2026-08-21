@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from ..config import Provider, settings
+from ..db import app_pool
 from ..deps import LAYER, SYNONYMS, example_questions
 from ..llm.client import (
     LLMError,
@@ -110,27 +111,30 @@ def run_query(body: QueryIn):
 
 
 def _save(body: QueryIn, r, *, prompt: str | None = None) -> None:
-    existing = store.get_card(body.card_id)
-    if existing is None:
-        raise HTTPException(404, "no such card")
-    previous = (
-        {"semantic_query": existing["semantic_query"],
-         "chart_hint": existing["chart_hint"],
-         "vega_spec": existing["vega_spec"]}
-        if existing.get("semantic_query") else None
-    )
-    fields = {
-        "semantic_query": r.semantic_query.model_dump(mode="json"),
-        "chart_hint": r.chart_hint,
-        "vega_spec": r.vega_spec,
-        "title": body.title or existing["title"],
-        "state": r.state,
-        "cache": r.cache,
-        "previous": previous,
-    }
-    if prompt is not None:
-        fields["prompt"] = prompt
-    store.update_card(body.card_id, **fields)
+    with app_pool.connection() as conn:
+        existing = store.get_card(body.card_id, conn=conn, for_update=True)
+        if existing is None:
+            raise HTTPException(404, "no such card")
+        previous = (
+            {"semantic_query": existing["semantic_query"],
+             "chart_hint": existing["chart_hint"],
+             "vega_spec": existing["vega_spec"]}
+            if existing.get("semantic_query") else None
+        )
+        fields = {
+            "semantic_query": r.semantic_query.model_dump(mode="json"),
+            "chart_hint": r.chart_hint,
+            "vega_spec": r.vega_spec,
+            "title": body.title or existing["title"],
+            "state": r.state,
+            "cache": r.cache,
+            "previous": previous,
+        }
+        if prompt is not None:
+            fields["prompt"] = prompt
+        saved = store.update_card(body.card_id, conn=conn, **fields)
+        if saved is None:
+            raise HTTPException(404, "no such card")
 
 
 @router.post("/ask")

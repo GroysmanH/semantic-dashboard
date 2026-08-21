@@ -5,6 +5,8 @@ is rebuilding it, which is the moment someone stops trusting the edit box.
 """
 
 import uuid
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from threading import Event
 
 import pytest
 from fastapi.testclient import TestClient
@@ -152,6 +154,72 @@ def test_query_persists_a_valid_unplottable_result_for_reload(client, card):
     assert saved["semantic_query"]["dimensions"] == [{"field": "region", "grain": None}]
     assert saved["state"] == "broken"
     assert saved["cache"]["key"] == "unplottable-key"
+
+
+def test_query_save_returns_404_when_the_card_was_deleted(client, card):
+    query = {"entity": "production", "measures": ["oil"],
+             "dimensions": [{"field": "region"}]}
+    assert client.delete(f"/cards/{card['id']}").status_code == 204
+
+    with patch("app.routes.ask.render", return_value=unplottable_result(query)):
+        response = client.post(
+            "/query",
+            json={"semantic_query": query, "card_id": card["id"], "title": "gone"},
+        )
+
+    assert response.status_code == 404
+
+
+def test_query_save_holds_the_card_lock_until_its_update_commits(card):
+    from app.routes.ask import QueryIn, _save
+
+    query = {"entity": "production", "measures": ["oil"],
+             "dimensions": [{"field": "region"}]}
+    locked = Event()
+    release = Event()
+    delete_started = Event()
+    original_get = store.get_card
+
+    def observe_lock(*args, **kwargs):
+        result = original_get(*args, **kwargs)
+        if kwargs.get("for_update"):
+            locked.set()
+            assert release.wait(timeout=5)
+        return result
+
+    def delete_card():
+        delete_started.set()
+        store.hard_delete_card(card["id"])
+
+    with patch("app.routes.ask.store.get_card", side_effect=observe_lock):
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            saved = executor.submit(
+                _save,
+                QueryIn(
+                    semantic_query=SemanticQuery.model_validate(query),
+                    card_id=card["id"],
+                    title="locked save",
+                ),
+                unplottable_result(query),
+            )
+            saw_lock = locked.wait(timeout=5)
+            if not saw_lock:
+                release.set()
+            assert saw_lock
+            deleted = executor.submit(delete_card)
+            saw_delete = delete_started.wait(timeout=5)
+            if not saw_delete:
+                release.set()
+            assert saw_delete
+            try:
+                with pytest.raises(TimeoutError):
+                    deleted.result(timeout=0.1)
+            finally:
+                release.set()
+            saved.result(timeout=5)
+            deleted.result(timeout=5)
+
+    assert store.get_card(card["id"]) is None
 
 
 def test_ask_persists_an_unplottable_refinement_and_prompt(client, card):

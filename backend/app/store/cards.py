@@ -229,6 +229,7 @@ def create_card(
     with _connection(conn) as active, active.cursor() as cur:
         # A row lock serializes slot calculation for one board while leaving
         # card creation on other boards independent.
+        cur.execute("LOCK TABLE app.board IN ROW EXCLUSIVE MODE")
         cur.execute(
             "SELECT id FROM app.board "
             "WHERE id = %s AND deleted_at IS NULL FOR UPDATE",
@@ -271,16 +272,25 @@ def list_cards(
     )
 
 
-def get_card(card_id: uuid.UUID, *, conn=None) -> dict[str, Any] | None:
-    return _q(
+def get_card(
+    card_id: uuid.UUID, *, conn=None, for_update: bool = False
+) -> dict[str, Any] | None:
+    lock = " FOR UPDATE OF c" if for_update else ""
+    sql = (
         f"SELECT {CARD_COLUMNS} FROM app.card c "
         "WHERE c.id = %s AND c.deleted_at IS NULL "
         "AND EXISTS (SELECT 1 FROM app.board b WHERE b.id = c.board_id "
-        "AND b.deleted_at IS NULL)",
-        (card_id,),
-        fetch="one",
-        conn=conn,
+        f"AND b.deleted_at IS NULL){lock}"
     )
+    if not for_update:
+        return _q(sql, (card_id,), fetch="one", conn=conn)
+
+    with _connection(conn) as active, active.cursor(row_factory=dict_row) as cur:
+        # Board deletion locks this table first, so transactionally saving a
+        # card follows the same table-before-row order and cannot deadlock it.
+        cur.execute("LOCK TABLE app.board IN ROW EXCLUSIVE MODE")
+        cur.execute(sql, (card_id,))
+        return cur.fetchone()
 
 
 def _change_card_visibility(

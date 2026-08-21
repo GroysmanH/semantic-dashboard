@@ -42,6 +42,18 @@ ACTION_STATUSES = {
     "queued", "running", "completed", "completed_with_errors", "stopped",
     "failed", "cancelled", "undone",
 }
+ACTION_TRANSITIONS = {
+    "queued": {"running", "cancelled", "failed"},
+    "running": {
+        "completed", "completed_with_errors", "stopped", "failed", "cancelled",
+    },
+    "completed": {"undone"},
+    "completed_with_errors": {"running", "undone"},
+    "stopped": {"running", "undone"},
+    "failed": {"running", "undone"},
+    "cancelled": set(),
+    "undone": set(),
+}
 
 
 class PendingPlanExistsError(RuntimeError):
@@ -270,6 +282,8 @@ def transition_action(
     """
     if expected not in ACTION_STATUSES or status not in ACTION_STATUSES:
         raise ValueError("unknown action status")
+    if status not in ACTION_TRANSITIONS[expected]:
+        raise ValueError(f"illegal action transition: {expected} -> {status}")
     action = _q(
         "UPDATE app.chat_action SET status = %s, updated_at = now() "
         f"WHERE id = %s AND status = %s RETURNING {ACTION_COLUMNS}",

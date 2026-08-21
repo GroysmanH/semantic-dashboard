@@ -135,6 +135,59 @@ def test_actions_effects_ordered_items_and_events_round_trip(thread):
         chat.transition_action(action["id"], expected="queued", status="pending")
 
 
+def test_action_transition_graph_supports_retry_and_has_absorbing_states(thread):
+    cancelled_plan = pending(thread["id"], "cancelled")
+    chat.transition_plan(cancelled_plan["id"], expected="pending", status="confirmed")
+    cancelled = chat.create_action(
+        cancelled_plan, provider="gemini", model="test", effects={},
+    )
+    chat.transition_action(cancelled["id"], expected="queued", status="cancelled")
+    with pytest.raises(ValueError):
+        chat.transition_action(cancelled["id"], expected="cancelled", status="running")
+
+    completed_plan = pending(thread["id"], "completed")
+    chat.transition_plan(completed_plan["id"], expected="pending", status="confirmed")
+    completed = chat.create_action(
+        completed_plan, provider="gemini", model="test", effects={},
+    )
+    chat.transition_action(completed["id"], expected="queued", status="running")
+    chat.transition_action(completed["id"], expected="running", status="completed")
+    undone = chat.transition_action(
+        completed["id"], expected="completed", status="undone",
+    )
+    assert undone["status"] == "undone"
+    with pytest.raises(ValueError):
+        chat.transition_action(completed["id"], expected="undone", status="running")
+
+    retry_plan = pending(thread["id"], "retry")
+    chat.transition_plan(retry_plan["id"], expected="pending", status="confirmed")
+    retry = chat.create_action(
+        retry_plan, provider="gemini", model="test", effects={},
+    )
+    chat.transition_action(retry["id"], expected="queued", status="failed")
+    resumed = chat.transition_action(
+        retry["id"], expected="failed", status="running",
+    )
+    assert resumed["status"] == "running"
+
+    with pytest.raises(ValueError):
+        chat.transition_action(retry["id"], expected="running", status="running")
+
+    undoable_plan = pending(thread["id"], "partial undo")
+    chat.transition_plan(undoable_plan["id"], expected="pending", status="confirmed")
+    undoable = chat.create_action(
+        undoable_plan, provider="gemini", model="test", effects={},
+    )
+    chat.transition_action(undoable["id"], expected="queued", status="running")
+    chat.transition_action(
+        undoable["id"], expected="running", status="completed_with_errors",
+    )
+    result = chat.transition_action(
+        undoable["id"], expected="completed_with_errors", status="undone",
+    )
+    assert result["status"] == "undone"
+
+
 def test_transients_expire_and_are_purged(thread):
     fresh = chat.save_transient(
         thread["id"], query={"entity": "production", "measures": ["oil"]},
@@ -161,7 +214,10 @@ def test_clear_thread_cancels_active_work_and_detaches_completed_actions(thread)
     completed = chat.create_action(
         completed_plan, provider="gemini", model="test", effects={"done": True},
     )
-    chat.transition_action(completed["id"], expected="queued", status="completed")
+    # An action cannot complete without having run: the transition graph
+    # forbids the shortcut, and so does reality.
+    chat.transition_action(completed["id"], expected="queued", status="running")
+    chat.transition_action(completed["id"], expected="running", status="completed")
     completed_item = chat.append_action_item(
         completed["id"], ordinal=0, request={"title": "kept"}, status="succeeded",
     )
@@ -223,7 +279,8 @@ def test_expired_action_purge_is_independent_and_cascades_children(thread):
         action["id"], ordinal=0, request={"title": "cascade"},
     )
     event = chat.append_event(action["id"], "plan", {"cascade": True})
-    chat.transition_action(action["id"], expected="queued", status="completed")
+    chat.transition_action(action["id"], expected="queued", status="running")
+    chat.transition_action(action["id"], expected="running", status="completed")
     chat.clear_thread(thread["id"], tombstone_days=1)
     assert chat.get_action(action["id"]) is not None
     assert chat.list_action_items(action["id"])[0]["id"] == item["id"]
