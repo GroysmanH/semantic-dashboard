@@ -1,13 +1,26 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import TabBar from "./TabBar";
 import type { BoardSummary } from "../api/client";
 
 const BOARDS: BoardSummary[] = [
   { id: "a", title: "Operations", position: 0 },
   { id: "b", title: "Drilling", position: 1 },
+  { id: "c", title: "Finance", position: 2 },
 ];
+
+function mockTabRects() {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    const text = this.textContent ?? "";
+    const index = text.includes("Operations") ? 0 : text.includes("Drilling") ? 1 : 2;
+    const left = index * 120;
+    return {
+      x: left, y: 0, top: 0, left, right: left + 110, bottom: 40,
+      width: 110, height: 40, toJSON: () => ({}),
+    } as DOMRect;
+  });
+}
 
 function setup(overrides: Partial<Parameters<typeof TabBar>[0]> = {}) {
   const props = {
@@ -18,6 +31,7 @@ function setup(overrides: Partial<Parameters<typeof TabBar>[0]> = {}) {
     onCreate: vi.fn(),
     onRename: vi.fn(),
     onDelete: vi.fn(),
+    onReorder: vi.fn(),
     ...overrides,
   };
   render(<TabBar {...props} />);
@@ -25,6 +39,8 @@ function setup(overrides: Partial<Parameters<typeof TabBar>[0]> = {}) {
 }
 
 describe("TabBar", () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it("marks only the active board as selected", () => {
     setup();
     expect(screen.getByRole("tab", { name: "Operations" })).toHaveAttribute(
@@ -42,6 +58,36 @@ describe("TabBar", () => {
     const props = setup();
     await user.click(screen.getByRole("tab", { name: "Drilling" }));
     expect(props.onSelect).toHaveBeenCalledWith("b");
+  });
+
+  it("moves dashboards through the keyboard-sort path", async () => {
+    const user = userEvent.setup();
+    mockTabRects();
+    const props = setup();
+
+    const handle = screen.queryByRole("button", { name: "Reorder Operations" });
+    expect(handle).not.toBeNull();
+    handle?.focus();
+    await user.keyboard("{Enter}");
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(
+      "Operations dashboard is in position 1 of 3.",
+    ));
+    await user.keyboard("{ArrowRight}{Enter}");
+
+    expect(props.onReorder).toHaveBeenCalledWith(["b", "a", "c"]);
+  });
+
+  it("cancels keyboard sorting on Escape", async () => {
+    const user = userEvent.setup();
+    mockTabRects();
+    const props = setup();
+
+    const handle = screen.queryByRole("button", { name: "Reorder Operations" });
+    expect(handle).not.toBeNull();
+    handle?.focus();
+    await user.keyboard("{Enter}{ArrowRight}{Escape}");
+
+    expect(props.onReorder).not.toHaveBeenCalled();
   });
 
   it("renames on double click and commits with Enter", async () => {

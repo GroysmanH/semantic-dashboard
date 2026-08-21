@@ -102,16 +102,40 @@ body {
   border-bottom: 2px solid transparent;
 }
 .tab-active { border-bottom-color: var(--accent); }
+.tab-dragging {
+  z-index: 30;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+}
 
 .tab-label,
 .tab-close,
-.tab-add {
+.tab-add,
+.tab-drag {
   background: none;
   border: none;
   border-radius: var(--r);
   color: var(--ink-faint);
   cursor: pointer;
   transition: color var(--motion), background var(--motion);
+}
+.tab-drag {
+  width: 20px;
+  align-self: stretch;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  cursor: grab;
+  touch-action: none;
+}
+.tab-drag:active { cursor: grabbing; }
+.tab-drag:disabled { cursor: default; opacity: 0.35; }
+.tab-drag span {
+  width: 9px;
+  height: 15px;
+  background-image: radial-gradient(circle, currentColor 1px, transparent 1.4px);
+  background-position: 0 0;
+  background-size: 4px 4px;
 }
 .tab-label {
   max-width: 15rem;
@@ -159,20 +183,52 @@ body {
   letter-spacing: 0.06em;
 }
 
-.board-export {
-  align-self: center;
-  padding: 0.4rem 0.6rem;
-  background: none;
-  border: 1px solid var(--rule);
-  border-radius: var(--r);
+.export-menu { position: relative; flex: none; }
+.export-menu-button {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.55rem;
   color: var(--ink-soft);
+  background: transparent;
+  border-color: var(--rule);
 }
-.board-export:hover:not(:disabled) {
+.export-menu-button:hover:not(:disabled),
+.export-menu-button[aria-expanded="true"] {
   color: var(--accent);
   border-color: var(--accent);
   background: var(--accent-soft);
 }
-.board-export:disabled { opacity: 0.45; cursor: default; }
+.export-menu-button:disabled { opacity: 0.4; cursor: default; }
+.export-chevron { font-size: 13px; line-height: 1; }
+.export-menu-popover {
+  position: absolute;
+  z-index: 32;
+  top: calc(100% + 4px);
+  min-width: 112px;
+  padding: 4px;
+  background: var(--surface-raised);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  animation: pop-in 120ms ease-out;
+}
+.export-menu-popover.align-start { left: 0; }
+.export-menu-popover.align-end { right: 0; }
+.export-menu-popover button {
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+  color: var(--ink-soft);
+  background: transparent;
+  border-color: transparent;
+}
+.export-menu-popover button:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.export-menu-popover button:disabled { opacity: 0.4; }
 
 .board-area {
   min-height: calc(100vh - 50px);

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { VegaLite } from "react-vega";
 import { KAZAKHSTAN } from "../assets/kazakhstan";
 import type { VegaView } from "../export/png";
@@ -301,6 +301,14 @@ export default function VegaChart({
 }) {
   const config = useChartConfig();
   const { ref, bounds, liveBounds } = useChartBounds(resizing);
+  const onViewRef = useRef(onView);
+  onViewRef.current = onView;
+  // react-vega recreates and finalizes its View whenever onNewView changes.
+  // Keep this adapter stable even when delivering the view updates parent
+  // state; the ref still forwards to the latest owner callback.
+  const handleNewView = useCallback((view: unknown) => {
+    onViewRef.current?.(view as VegaView);
+  }, []);
   const presentation = metadata(spec).presentation;
   const compact = presentation === "kpi" || presentation === "ranked";
   const scrollable = needsVerticalScroll(spec, rows, bounds) || needsKpiScroll(spec, bounds);
@@ -363,7 +371,7 @@ export default function VegaChart({
         <VegaLite
           spec={full as never}
           actions={false}
-          onNewView={(view) => onView?.(view as unknown as VegaView)}
+          onNewView={handleNewView}
           renderer="svg"
           style={{
             width: "100%",

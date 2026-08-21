@@ -454,6 +454,26 @@ describe("Board visual-first interactions", () => {
     expect(add).toHaveClass("add-card-primary");
   });
 
+  it("places one dashboard export menu in the masthead's right-side host", async () => {
+    render(
+      <>
+        <header className="masthead">
+          <div id="board-primary-action" />
+          <h1>Semantic Dashboard</h1>
+          <div id="board-export-action" />
+        </header>
+        <Board boardId="board-1" examples={[]} providers={providers} />
+      </>,
+    );
+
+    await screen.findByRole("heading", { name: "Oil by month" });
+    const primary = document.getElementById("board-primary-action")!;
+    const exports = document.getElementById("board-export-action")!;
+    expect(within(primary).getByRole("button", { name: "Add card" })).toBeVisible();
+    expect(within(primary).queryByRole("button", { name: /Export/ })).not.toBeInTheDocument();
+    expect(within(exports).getByRole("button", { name: "Export Operations" })).toBeVisible();
+  });
+
   it("appends the returned card when its post-create board reload fails", async () => {
     const user = userEvent.setup();
     const created = emptyCard("card-3", { x: 6, y: 9, w: 6, h: 9 });

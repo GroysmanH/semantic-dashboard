@@ -7,6 +7,7 @@ import GridLayout from "react-grid-layout";
 import type { Board as BoardT, Layout, Providers } from "../api/client";
 import { api } from "../api/client";
 import Card from "./Card";
+import ExportMenu from "./ExportMenu";
 
 const COLS = 12;
 const ROW_HEIGHT = 32;
@@ -479,41 +480,41 @@ export default function Board({
       )}
 
       {(() => {
-        const action = (
+        const primaryAction = (
+          <button
+            className="add-card-primary"
+            type="button"
+            onClick={() => void addCard()}
+            disabled={adding}
+            aria-label="Add card"
+            title="Add a new dashboard card"
+          >
+            <span className="add-card-plus" aria-hidden="true">{adding ? "…" : "+"}</span>
+            <span>{adding ? "Adding…" : "New card"}</span>
+          </button>
+        );
+        const exportAction = (
+          <ExportMenu
+            label={`Export ${board.title}`}
+            items={[
+              {
+                label: exporting ? "PNG (exporting…)" : "PNG",
+                disabled: exporting || !board.cards.length,
+                run: exportImage,
+              },
+              { label: "JSON", disabled: !board.cards.length, run: exportJson },
+            ]}
+            onError={(error) => setExportError(error instanceof Error ? error.message : String(error))}
+          />
+        );
+        const primaryHost = document.getElementById("board-primary-action");
+        const exportHost = document.getElementById("board-export-action");
+        return (
           <>
-            <button
-              className="add-card-primary"
-              type="button"
-              onClick={() => void addCard()}
-              disabled={adding}
-              aria-label="Add card"
-              title="Add a new dashboard card"
-            >
-              <span className="add-card-plus" aria-hidden="true">{adding ? "…" : "+"}</span>
-              <span>{adding ? "Adding…" : "New card"}</span>
-            </button>
-            <button
-              type="button"
-              className="board-export"
-              disabled={exporting || !board?.cards.length}
-              onClick={() => void exportImage()}
-              title="Export every chart on this dashboard as one image"
-            >
-              {exporting ? "Exporting…" : "Export PNG"}
-            </button>
-            <button
-              type="button"
-              className="board-export"
-              disabled={!board?.cards.length}
-              onClick={exportJson}
-              title="Export this dashboard's definition"
-            >
-              Export JSON
-            </button>
+            {primaryHost ? createPortal(primaryAction, primaryHost) : primaryAction}
+            {exportHost ? createPortal(exportAction, exportHost) : exportAction}
           </>
         );
-        const host = document.getElementById("board-primary-action");
-        return host ? createPortal(action, host) : action;
       })()}
     </div>
   );

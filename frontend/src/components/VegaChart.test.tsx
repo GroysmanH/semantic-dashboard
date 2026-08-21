@@ -1,14 +1,24 @@
+import { useState } from "react";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { VegaView } from "../export/png";
 import VegaChart from "./VegaChart";
 
 const captured = vi.hoisted(() => ({
   spec: {} as Record<string, unknown>,
+  onNewViews: [] as Array<(view: unknown) => void>,
 }));
 
 vi.mock("react-vega", () => ({
-  VegaLite: ({ spec }: { spec: Record<string, unknown> }) => {
+  VegaLite: ({
+    spec,
+    onNewView,
+  }: {
+    spec: Record<string, unknown>;
+    onNewView: (view: unknown) => void;
+  }) => {
     captured.spec = spec;
+    captured.onNewViews.push(onNewView);
     return <div data-testid="vega-lite" />;
   },
 }));
@@ -29,6 +39,7 @@ function mediaQueryList(query: string): MediaQueryList {
 describe("VegaChart presentation sizing", () => {
   beforeEach(() => {
     captured.spec = {};
+    captured.onNewViews = [];
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
       x: 0,
       y: 0,
@@ -40,6 +51,30 @@ describe("VegaChart presentation sizing", () => {
       height: 320,
       toJSON: () => ({}),
     } as DOMRect);
+  });
+
+  it("keeps the Vega new-view listener stable when delivering a view rerenders its parent", async () => {
+    const spec = {
+      data: { name: "table" },
+      mark: "bar",
+      encoding: { x: { field: "value", type: "quantitative" } },
+    };
+    const rows = [{ value: 12 }];
+    const delivered = { toImageURL: vi.fn() } as unknown as VegaView;
+
+    function Harness() {
+      const [, setView] = useState<VegaView | null>(null);
+      return <VegaChart spec={spec} rows={rows} onView={setView} />;
+    }
+
+    render(<Harness />);
+    await waitFor(() => expect(captured.onNewViews.length).toBeGreaterThan(0));
+    const firstListener = captured.onNewViews.at(-1)!;
+
+    act(() => firstListener(delivered));
+    await waitFor(() => expect(captured.onNewViews.length).toBeGreaterThan(1));
+
+    expect(captured.onNewViews.at(-1)).toBe(firstListener);
   });
 
   it("keeps short rankings compact instead of stretching one bar through the card", async () => {

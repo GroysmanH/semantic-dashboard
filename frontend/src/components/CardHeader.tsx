@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Render } from "../api/types.gen";
+import ExportMenu from "./ExportMenu";
 
 function clockOf(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -51,6 +52,7 @@ export default function CardHeader({
   onRemove,
   onExportPng,
   onExportCsv,
+  onExportError,
 }: {
   title: string;
   state: "empty" | "ready" | "broken";
@@ -65,8 +67,9 @@ export default function CardHeader({
   onRemove: () => void;
   /** Absent when there is nothing to export yet, so the menu never offers
    *  an action that would do nothing. */
-  onExportPng?: () => void;
-  onExportCsv?: () => void;
+  onExportPng?: () => void | Promise<void>;
+  onExportCsv?: () => void | Promise<void>;
+  onExportError: (error: unknown) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -133,6 +136,16 @@ export default function CardHeader({
             <RefreshIcon busy={busy} />
           </button>
         )}
+        {(onExportPng || onExportCsv) && (
+          <ExportMenu
+            label={`Export ${title}`}
+            items={[
+              { label: "PNG", disabled: !onExportPng, run: () => onExportPng?.() },
+              { label: "CSV", disabled: !onExportCsv, run: () => onExportCsv?.() },
+            ]}
+            onError={onExportError}
+          />
+        )}
         <div className="card-menu" ref={menuRef}>
           <button
             className="icon-button"
@@ -146,31 +159,7 @@ export default function CardHeader({
             <MenuIcon />
           </button>
           {menuOpen && (
-            <div className="card-menu-popover" role="menu">
-              {onExportPng && (
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onExportPng();
-                  }}
-                >
-                  Export chart as PNG
-                </button>
-              )}
-              {onExportCsv && (
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setMenuOpen(false);
-                    onExportCsv();
-                  }}
-                >
-                  Export rows as CSV
-                </button>
-              )}
+            <div className="card-menu-popover" role="menu" aria-label="Card actions">
               <button
                 type="button"
                 role="menuitem"

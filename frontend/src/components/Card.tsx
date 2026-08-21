@@ -10,6 +10,7 @@ import { csvBlob } from "../export/csv";
 import { chartPng, download, downloadBlob, safeName, type VegaView } from "../export/png";
 
 type PanelKind = "edit" | "sql";
+type LiveChartView = { spec: Record<string, unknown>; view: VegaView };
 
 function fallbackDescription(chartType: string | null | undefined): string {
   if (chartType === "big_number") return "a KPI";
@@ -49,11 +50,17 @@ export default function Card({
   const [askNote, setAskNote] = useState<string | null>(null);
   const [changed, setChanged] = useState<string[]>([]);
   const editRef = useRef<HTMLDivElement>(null);
-  // The live Vega view, kept so the card can rasterise exactly what is on
-  // screen rather than re-rendering the spec somewhere off-screen.
-  const viewRef = useRef<VegaView | null>(null);
   const render = card.render;
   const state = render?.state ?? card.state;
+  const spec = render?.vega_spec as Record<string, unknown> | null | undefined;
+  const chartRows = (render?.chart_rows ?? render?.rows ?? []) as Record<string, unknown>[];
+  const chartVisible = state === "ready" && Boolean(spec) && chartRows.length > 0;
+  // Tie a Vega view to the exact spec that created it. A ref alone can
+  // silently keep exporting the previous chart after a card refresh.
+  const [liveView, setLiveView] = useState<LiveChartView | null>(null);
+  const onViewRef = useRef(onView);
+  onViewRef.current = onView;
+  const view = liveView && chartVisible && liveView.spec === spec ? liveView.view : null;
   const unplottable = state === "broken" && render?.error_reason === "unplottable";
   const editable = state === "ready" || unplottable;
   const editOpen = selected && editable;
@@ -81,6 +88,19 @@ export default function Card({
     if (!sqlOpen) onTransientHeight(card.id, "sql", 0);
   }, [card.id, onTransientHeight, sqlOpen]);
 
+  useEffect(() => {
+    if (!liveView || (chartVisible && liveView.spec === spec)) return;
+    setLiveView(null);
+    onViewRef.current?.(null);
+  }, [card.id, chartVisible, liveView, spec]);
+
+  useEffect(() => () => onViewRef.current?.(null), []);
+
+  const receiveView = useCallback((nextView: VegaView | null) => {
+    setLiveView(nextView && spec ? { spec, view: nextView } : null);
+    onViewRef.current?.(nextView);
+  }, [spec]);
+
   const refresh = async () => {
     setBusy(true);
     try {
@@ -92,7 +112,6 @@ export default function Card({
   };
 
   const exportPng = async () => {
-    const view = viewRef.current;
     if (!view) return;
     setAskNote(null);
     try {
@@ -110,6 +129,10 @@ export default function Card({
     const rows = (render?.rows ?? []) as Record<string, unknown>[];
     downloadBlob(csvBlob(rows), safeName(card.title, "csv"));
   };
+
+  const reportExportError = useCallback((error: unknown) => {
+    setAskNote(error instanceof Error ? error.message : String(error));
+  }, []);
 
   const refine = async (question: string) => {
     setBusy(true);
@@ -171,8 +194,9 @@ export default function Card({
       }}
     >
       <CardHeader
-        onExportPng={viewRef.current ? exportPng : undefined}
+        onExportPng={view ? exportPng : undefined}
         onExportCsv={render?.rows?.length ? exportCsv : undefined}
+        onExportError={reportExportError}
         title={card.title || "Untitled"}
         state={state}
         render={render}
@@ -187,6 +211,9 @@ export default function Card({
       />
 
       <div className="card-body">
+        {askNote && !editOpen && state !== "empty" && (
+          <div className="notice hint">{askNote}</div>
+        )}
         {editOpen && (
           <div className="refine transient-panel" ref={editRef} data-card-control>
             <AskBar
@@ -239,22 +266,19 @@ export default function Card({
           </div>
         )}
 
-        {state === "ready" && render?.vega_spec && (
+        {state === "ready" && spec && (
           <>
-            {render.hint_rejected && (
+            {render?.hint_rejected && (
               <div className="notice hint chart-notice">
-                Requested chart wasn’t useful for this result; showing {fallbackDescription(render.chart_type)} instead.
+                Requested chart wasn’t useful for this result; showing {fallbackDescription(render?.chart_type)} instead.
               </div>
             )}
             <div className="chart-slot" data-card-control>
               <VegaChart
-                spec={render.vega_spec as Record<string, unknown>}
-                rows={(render.chart_rows ?? render.rows) as Record<string, unknown>[]}
+                spec={spec}
+                rows={chartRows}
                 resizing={resizing}
-                onView={(view) => {
-                  viewRef.current = view;
-                  onView?.(view);
-                }}
+                onView={receiveView}
               />
             </div>
           </>

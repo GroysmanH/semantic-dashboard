@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import "react-grid-layout/css/styles.css";
 import "react-resizable/css/styles.css";
 import "./styles.css";
@@ -21,6 +21,9 @@ export default function App() {
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // React state does not update synchronously enough to be a lock. This ref
+  // prevents a second board mutation entering before the busy render lands.
+  const mutationInFlight = useRef(false);
 
   const select = useCallback((id: string) => {
     setBoardId(id);
@@ -59,6 +62,8 @@ export default function App() {
   }, [select]);
 
   const guard = async (work: () => Promise<void>) => {
+    if (mutationInFlight.current) return;
+    mutationInFlight.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -66,6 +71,7 @@ export default function App() {
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
+      mutationInFlight.current = false;
       setBusy(false);
     }
   };
@@ -99,6 +105,30 @@ export default function App() {
       if (boardId === id && left.length) select(left[0].id);
     });
 
+  const reorder = (order: string[]) =>
+    guard(async () => {
+      const before = boards;
+      const previousPositions = new Map(before.map((board) => [board.id, board.position]));
+      const next = order.map((id, position) => ({
+        ...before.find((board) => board.id === id)!,
+        position,
+      }));
+      setBoards(next);
+      try {
+        await api.reorderBoards(order);
+      } catch (reorderError) {
+        // Revert only ordering. Replacing the whole snapshot could erase a
+        // title or other board field refreshed while the request was open.
+        setBoards((current) => current
+          .map((board) => ({
+            ...board,
+            position: previousPositions.get(board.id) ?? board.position,
+          }))
+          .sort((left, right) => left.position - right.position));
+        throw reorderError;
+      }
+    });
+
   return (
     <>
       <header className="masthead">
@@ -106,6 +136,7 @@ export default function App() {
         <h1>Semantic Dashboard</h1>
         <span className="eyebrow">grounded in a curated layer · no row data leaves the warehouse</span>
         <span className="spacer" />
+        <div id="board-export-action" className="masthead-action" />
       </header>
       <TabBar
         boards={boards}
@@ -115,6 +146,7 @@ export default function App() {
         onCreate={create}
         onRename={rename}
         onDelete={remove}
+        onReorder={reorder}
       />
       {error && <p className="notice broken" style={{ margin: "1rem 1.25rem" }}>{error}</p>}
       {boardId && (

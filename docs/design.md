@@ -224,6 +224,35 @@ with four blank cards must not lose them on reload. The empty state hosts the pr
 and example questions drawn from the layer — which doubles as the discoverability
 mechanism for what vocabulary exists.
 
+### Dashboard JSON export (version 1)
+
+Dashboard JSON is a portable definition, not a snapshot of result rows. Version 1 has
+this shape:
+
+```json
+{
+  "version": 1,
+  "title": "Operations",
+  "exported_at": "2026-08-20T12:00:00.000Z",
+  "cards": [
+    {
+      "title": "Oil by region",
+      "semantic_query": {
+        "entity": "daily_production",
+        "measures": [{"name": "oil_production"}],
+        "dimensions": [{"field": "region"}]
+      },
+      "chart_hint": "bar",
+      "layout": {"x": 0, "y": 0, "w": 6, "h": 10},
+      "ttl_seconds": 900
+    }
+  ]
+}
+```
+
+`exported_at` is an ISO-8601 timestamp. Empty placeholder cards are omitted. Import is
+not supported; the version exists so a future importer can identify this exact shape.
+
 ---
 
 ## 8. Trust surface
