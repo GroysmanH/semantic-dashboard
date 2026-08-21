@@ -103,4 +103,4 @@ def patch_card(card_id: uuid.UUID, body: CardPatch):
 
 @router.delete("/{card_id}", status_code=204)
 def delete_card(card_id: uuid.UUID):
-    store.delete_card(card_id)
+    store.hard_delete_card(card_id)

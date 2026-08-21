@@ -8,11 +8,14 @@ cards.
 """
 
 import uuid
+from contextlib import contextmanager
 
 import pytest
 from fastapi.testclient import TestClient
 
+from app.db import app_pool
 from app.main import app
+from app.store import cards as store
 
 
 @pytest.fixture
@@ -28,6 +31,28 @@ def make_board(client, title):
 
 def ids(boards):
     return [b["id"] for b in boards]
+
+
+@contextmanager
+def only_visible(board_id):
+    """Temporarily isolate the last-board invariant without depending on
+    what another test left in its fixture baseline."""
+    with app_pool.connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE app.board SET deleted_at = now() "
+            "WHERE id <> %s AND deleted_at IS NULL RETURNING id",
+            (board_id,),
+        )
+        hidden = [row[0] for row in cur.fetchall()]
+    try:
+        yield
+    finally:
+        if hidden:
+            with app_pool.connection() as conn, conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE app.board SET deleted_at = NULL WHERE id = ANY(%s)",
+                    (hidden,),
+                )
 
 
 # -- ordering ------------------------------------------------------------
@@ -122,7 +147,105 @@ def test_layout_still_saves_for_the_owning_board(client):
 # -- deletion ------------------------------------------------------------
 
 def test_deleting_a_board_takes_its_cards_with_it(client):
+    make_board(client, "survivor")
     board = make_board(client, "doomed")
     card = client.post(f"/boards/{board['id']}/cards").json()
     client.delete(f"/boards/{board['id']}")
     assert client.get(f"/cards/{card['id']}").status_code == 404
+
+
+def test_direct_delete_refuses_to_remove_the_last_visible_board(client):
+    board = make_board(client, "last visible")
+    with only_visible(board["id"]):
+        response = client.delete(f"/boards/{board['id']}")
+        assert response.status_code == 409
+        assert client.get(f"/boards/{board['id']}").status_code == 200
+
+
+def test_soft_deleted_cards_and_boards_are_hidden_until_restored(client):
+    make_board(client, "visible survivor")
+    board = make_board(client, "recoverable")
+    card = client.post(f"/boards/{board['id']}/cards").json()
+
+    deleted_card = store.soft_delete_card(uuid.UUID(card["id"]))
+    assert deleted_card["deleted_at"] is not None
+    assert client.get(f"/cards/{card['id']}").status_code == 404
+    store.restore_card(uuid.UUID(card["id"]))
+    assert client.get(f"/cards/{card['id']}").status_code == 200
+
+    store.soft_delete_board(uuid.UUID(board["id"]))
+    assert board["id"] not in ids(client.get("/boards").json())
+    assert client.get(f"/boards/{board['id']}").status_code == 404
+    assert client.get(f"/cards/{card['id']}").status_code == 404
+    store.restore_board(uuid.UUID(board["id"]))
+    assert client.get(f"/boards/{board['id']}").status_code == 200
+    assert client.get(f"/cards/{card['id']}").status_code == 200
+
+
+def test_soft_delete_cannot_hide_the_last_visible_board(client):
+    board = make_board(client, "last recoverable")
+    with only_visible(board["id"]):
+        with pytest.raises(store.LastVisibleBoardError):
+            store.soft_delete_board(uuid.UUID(board["id"]))
+
+
+def test_revisions_track_substantive_changes_but_not_render_cache(client):
+    board = make_board(client, "revision owner")
+    board_id = uuid.UUID(board["id"])
+    initial = store.get_board(board_id)["revision"]
+
+    card = client.post(f"/boards/{board['id']}/cards").json()
+    after_membership = store.get_board(board_id)["revision"]
+    assert after_membership > initial
+
+    store.update_card(
+        uuid.UUID(card["id"]),
+        cache={"key": "cache-only"},
+        state="ready",
+        vega_spec={"mark": "bar"},
+    )
+    assert store.get_board(board_id)["revision"] == after_membership
+
+    store.update_card(
+        uuid.UUID(card["id"]),
+        semantic_query={"entity": "production", "measures": ["oil"]},
+    )
+    after_semantic = store.get_board(board_id)["revision"]
+    assert after_semantic > after_membership
+
+    client.patch(
+        f"/boards/{board['id']}/layout",
+        json={"layouts": {card["id"]: {"x": 6, "y": 2, "w": 6, "h": 10}}},
+    )
+    after_layout = store.get_board(board_id)["revision"]
+    assert after_layout > after_semantic
+
+    client.patch(f"/boards/{board['id']}", json={"title": "renamed revision owner"})
+    assert store.get_board(board_id)["revision"] > after_layout
+
+
+def test_reorder_increments_every_affected_board_revision(client):
+    a = make_board(client, "revision a")
+    b = make_board(client, "revision b")
+    before = store.board_basis([uuid.UUID(a["id"]), uuid.UUID(b["id"])])
+
+    client.post("/boards/reorder", json={"order": [b["id"], a["id"]]})
+
+    after = store.board_basis([uuid.UUID(a["id"]), uuid.UUID(b["id"])])
+    assert after[a["id"]] > before[a["id"]]
+    assert after[b["id"]] > before[b["id"]]
+
+
+def test_hard_card_delete_changes_membership_revision(client):
+    board = make_board(client, "hard card owner")
+    card = client.post(f"/boards/{board['id']}/cards").json()
+    before = store.get_board(uuid.UUID(board["id"]))["revision"]
+
+    assert client.delete(f"/cards/{card['id']}").status_code == 204
+    assert client.get(f"/cards/{card['id']}").status_code == 404
+    assert store.get_board(uuid.UUID(board["id"]))["revision"] > before
+
+
+def test_deletion_store_has_no_ambiguous_aliases():
+    assert not hasattr(store, "delete_board")
+    assert not hasattr(store, "delete_card")

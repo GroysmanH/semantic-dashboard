@@ -55,10 +55,12 @@ def no_leftover_boards(pools):
     moment boards were rendered as tabs. Cards cascade, so removing the
     board is enough.
     """
-    from app.store import cards as store
+    from app.db import app_pool
 
     try:
-        before = {b["id"] for b in store.list_boards()}
+        with app_pool.connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT id FROM app.board")
+            before = {row[0] for row in cur.fetchall()}
     except Exception:
         # Tests that do not need a database must not fail on its absence.
         yield
@@ -66,6 +68,18 @@ def no_leftover_boards(pools):
 
     yield
 
-    for board in store.list_boards():
-        if board["id"] not in before:
-            store.delete_board(board["id"])
+    with app_pool.connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id FROM app.board WHERE NOT (id = ANY(%s))", (list(before),))
+        created = [row[0] for row in cur.fetchall()]
+        if not before:
+            # PostgreSQL's `x = ANY('{}')` is false, but keeping the empty
+            # baseline explicit makes this fixture's intent obvious.
+            cur.execute("SELECT id FROM app.board")
+            created = [row[0] for row in cur.fetchall()]
+
+    if created:
+        # Fixture teardown must restore the exact pre-test state even when a
+        # test intentionally exercises the final-visible-board invariant.
+        # This is test-owned data, so bypass the public deletion policy.
+        with app_pool.connection() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM app.board WHERE id = ANY(%s)", (created,))

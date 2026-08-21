@@ -61,7 +61,10 @@ def update_board(board_id: uuid.UUID, body: BoardPatch):
 
 @router.delete("/{board_id}", status_code=204)
 def delete_board(board_id: uuid.UUID):
-    store.delete_board(board_id)
+    try:
+        store.hard_delete_board(board_id)
+    except store.LastVisibleBoardError as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 @router.post("/{board_id}/cards")
