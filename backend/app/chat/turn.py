@@ -134,6 +134,7 @@ def _message_out(stored: dict, body: dict) -> ChatMessageOut:
         refusal=body.get("refusal"),
         missing_metric=body.get("missing_metric"),
         request_text=body.get("request_text"),
+        task_kind=body.get("task_kind"),
         active_board_id=stored.get("active_board_id"),
         active_board_title=stored.get("active_board_title") or "",
         data_exposed=stored.get("data_exposed", False),
@@ -245,11 +246,13 @@ def _task(request, board, built, turn, client, cards, boards, *,
 
     if not allow_changes:
         return _store(request, board, built,
-                      {"action": "refuse", "refusal": NO_CHANGES}, client)
+                      {"action": "refuse", "refusal": NO_CHANGES,
+                       "task_kind": turn.kind}, client)
 
     if chat_store.get_pending_plan(request.thread_id) is not None:
         return _store(request, board, built,
-                      {"action": "refuse", "refusal": ALREADY_PENDING}, client)
+                      {"action": "refuse", "refusal": ALREADY_PENDING,
+                       "task_kind": turn.kind}, client)
 
     user = f"{base}\n\n{detail_instruction(turn.kind, turn.say)}"
     try:
@@ -258,10 +261,16 @@ def _task(request, board, built, turn, client, cards, boards, *,
                                    boards=boards, cards=cards, client=client)
     except _Refused as exc:
         return _store(request, board, built,
-                      {"action": "refuse", "refusal": str(exc)}, client)
+                      {"action": "refuse", "refusal": str(exc),
+                       "task_kind": turn.kind}, client)
     except planner.PlanRefused as exc:
+        # The intent was expressible and the server declined it -- deleting
+        # the last dashboard, renaming something to the name it already has.
+        # Recording the kind keeps that distinguishable from a question the
+        # layer could not answer.
         return _store(request, board, built,
-                      {"action": "refuse", "refusal": str(exc)}, client)
+                      {"action": "refuse", "refusal": str(exc),
+                       "task_kind": turn.kind}, client)
 
     # `say` comes from the router turn, which is where the model described
     # what it was about to do. The detail call is not asked to describe it
@@ -276,11 +285,13 @@ def _task(request, board, built, turn, client, cards, boards, *,
         )
     except chat_store.PendingPlanExistsError:
         return _store(request, board, built,
-                      {"action": "refuse", "refusal": ALREADY_PENDING}, client)
+                      {"action": "refuse", "refusal": ALREADY_PENDING,
+                       "task_kind": turn.kind}, client)
 
     view = plan_view(stored_plan, say=turn.say)
     response = _store(request, board, built,
                       {"action": resolved.kind, "say": turn.say,
+                       "task_kind": turn.kind,
                        "plan_id": str(stored_plan["id"])}, client)
     return response.model_copy(update={"pending_plan": view})
 

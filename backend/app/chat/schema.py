@@ -375,6 +375,11 @@ class ChatMessageOut(StrictModel):
     refusal: str | None = None
     missing_metric: str | None = None
     request_text: str | None = None
+    # Which kind of change the turn set out to make, kept even when the
+    # attempt ended in a refusal. Without it a plan the server could not
+    # resolve is indistinguishable in the transcript from a question it
+    # could not answer, and those are different failures.
+    task_kind: str | None = None
     # Which dashboard was in front of the user when this was said. The
     # transcript is global, so without this a reader cannot tell what "this
     # board" referred to three messages ago.

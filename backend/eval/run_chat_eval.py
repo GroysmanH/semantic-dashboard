@@ -2,16 +2,23 @@
 
 A separate runner rather than another entry in run_eval.py's SUITES. The
 query suites score one thing — a semantic query against an expected one —
-and share a scoring function to do it. A chat turn is scored on two
+and share a scoring function to do it. A chat turn is scored on three
 independent axes that fail for different reasons and get fixed in different
 places:
 
     action accuracy   routing. Wrong action, perfect query: a prompt problem.
     query accuracy    grammar. Right action, wrong query: a layer or
                       vocabulary problem.
+    plan accuracy     the second call. Right action, wrong cards named: the
+                      detail prompt, not the router.
 
-Averaging them into one number hides both, which is why they are reported
-side by side and never summed.
+Averaging them into one number hides all three, which is why they are
+reported side by side and never summed.
+
+Nothing here changes a dashboard. A turn that proposes one writes a plan
+and stops; applying it is a separate confirmation this suite never sends.
+So a fixture expecting `delete_card` is scored on whether the turn said so,
+and the card is still there afterwards.
 
 Boards are built for real through the same compile/execute/render path a
 live card uses, so the rows a turn sees are rows the warehouse returned.
@@ -46,16 +53,10 @@ FIXTURES = Path("/app/eval/fixtures_chat.yaml")
 
 DIGIT = re.compile(r"\d")
 
-# What a provider is currently allowed to emit. The full action union does
-# not compile as a structured-output grammar on any vendor, so Phase 3 asks
-# with a read-only schema and a mutation is unrepresentable rather than
-# refused after the fact.
-#
-# Fixtures expecting a mutation are therefore reported as blocked, not as
-# misses: scoring a model on an action it cannot express measures the
-# schema, not the model. They stay in the suite because they are exactly
-# what Phase 4 has to make pass.
-ROUTABLE = {"answer", "run_query", "clarify", "refuse"}
+# Actions that are settled inside the turn. Everything else is a change,
+# which the turn only proposes: it writes a plan and stops, so the thing to
+# score is the plan, not the state of the database afterwards.
+SPOKEN = {"answer", "run_query", "clarify", "refuse"}
 
 
 def build_boards(presets: dict[str, dict]) -> dict[str, dict]:
@@ -94,21 +95,34 @@ def teardown(built: dict[str, dict]) -> None:
             print(f"  could not remove eval board: {exc}", file=sys.stderr)
 
 
+def routed(message: Any) -> str:
+    """Which action the turn actually chose.
+
+    A change that the server then declined is stored as a refusal carrying
+    the kind it set out to make. For routing that is the honest reading: a
+    model that correctly says "this is a delete_dashboard" has routed
+    correctly even when the application refuses to do it.
+    """
+    if message.action == "refuse" and message.task_kind:
+        return message.task_kind
+    return message.action
+
+
 def score(fixture: dict, outcome: Any, built: dict) -> dict[str, Any]:
     """One fixture, scored on each axis it actually declares."""
     message = outcome.message
-    action = message.action
+    action = routed(message)
+    plan = getattr(outcome, "pending_plan", None)
 
     accepted = fixture.get("accepts_actions") or [fixture["expected_action"]]
-    blocked = not any(a in ROUTABLE for a in accepted)
     result: dict[str, Any] = {
         "id": fixture["id"],
         "tags": (fixture.get("tags") or ["easy"])[0],
         "expected_action": fixture["expected_action"],
         "got_action": action,
-        "blocked": blocked,
-        "action_ok": None if blocked else action in accepted,
+        "action_ok": action in accepted,
         "query_ok": None,
+        "plan_ok": None,
         "claims_ok": None,
         "detail": "",
     }
@@ -125,6 +139,34 @@ def score(fixture: dict, outcome: Any, built: dict) -> dict[str, Any]:
             expected = SemanticQuery.model_validate(fixture["expected"])
             result["query_ok"] = relaxed_match(got, expected,
                                                fixture["expected"])
+
+    # -- the plan axis ---------------------------------------------------
+    #
+    # Separate from action accuracy because they fail differently: routing
+    # to new_cards and then proposing the wrong number of them is a
+    # second-stage problem, and merging it into the first would hide which
+    # of the two calls went wrong.
+    if action not in SPOKEN and result["action_ok"]:
+        if plan is None:
+            # A change that produced no plan was refused by the server. The
+            # routing still counted; there is simply no plan to check.
+            result["detail"] = message.refusal or "no plan was written"
+        else:
+            checks = []
+            if "expected_cards" in fixture:
+                checks.append(len(plan.cards) == fixture["expected_cards"])
+                if not checks[-1]:
+                    result["detail"] = (f"proposed {len(plan.cards)} cards, "
+                                        f"wanted {fixture['expected_cards']}")
+            if "expected_target" in fixture:
+                wanted = built["cards"].get(fixture["expected_target"])
+                named = {str(o.card_id) for o in plan.operations if o.card_id}
+                checks.append(wanted in named)
+                if not checks[-1]:
+                    result["detail"] = (f"the plan does not name the "
+                                        f"{fixture['expected_target']} card")
+            if checks:
+                result["plan_ok"] = all(checks)
 
     if "expects_claim" in fixture:
         has = bool(message.claims)
@@ -177,9 +219,15 @@ def run(provider: str, limit: int = 0) -> list[dict]:
             settings.chat_sees_data = fixture.get("share_rows", False)
             outcome = patiently(
                 lambda: run_turn(request, client=client), fixture["id"])
+            # Every fixture gets a fresh thread, so a plan left pending
+            # cannot block the next one. Cancelling it anyway keeps the
+            # database free of plans nobody will ever answer.
+            pending = chat_store.get_pending_plan(thread["id"])
+            if pending is not None:
+                chat_store.transition_plan(pending["id"], expected="pending",
+                                           status="cancelled")
             rows.append(score(fixture, outcome, entry))
-            mark = ("--  " if rows[-1]["blocked"]
-                    else "ok  " if rows[-1]["action_ok"] else "MISS")
+            mark = "ok  " if rows[-1]["action_ok"] else "MISS"
             print(f"  {mark} {fixture['id']}", file=sys.stderr, flush=True)
     finally:
         teardown(built)
@@ -194,34 +242,40 @@ def report(provider: str, model: str, rows: list[dict]) -> str:
             return "—"
         return f"{round(100 * sum(bool(r[key]) for r in scored) / len(scored))}%"
 
-    live = [r for r in rows if not r["blocked"]]
-    blocked = [r for r in rows if r["blocked"]]
-    easy = [r for r in live if r["tags"] == "easy"]
-    hard = [r for r in live if r["tags"] == "hard"]
+    easy = [r for r in rows if r["tags"] == "easy"]
+    hard = [r for r in rows if r["tags"] == "hard"]
 
     out = ["# Chat eval results", "",
-           f"Provider **{provider}**, model `{model}`. "
-           f"{len(rows)} turns: {len(live)} scored, "
-           f"{len(blocked)} not yet routable.", "",
-           "Action accuracy is routing; query accuracy is grammar. They are "
-           "reported apart because a turn that routes wrongly and writes a "
-           "perfect query is a different bug from one that routes correctly "
-           "and writes a bad one.", "",
-           f"{len(blocked)} fixtures expect a mutating action. Providers are "
-           "currently asked with a read-only schema, because the full action "
-           "union does not compile as a structured-output grammar on any "
-           "vendor, so those turns cannot be expressed at all. They are "
-           "excluded from the score rather than counted as misses: a model "
-           "cannot be marked wrong for not saying something it has no way to "
-           "say. They are what Phase 4 has to make pass.", "",
-           "| Set | Turns | Action | Query | Claims |",
-           "|---|---|---|---|---|"]
-    for label, subset in (("easy", easy), ("hard", hard), ("scored", live)):
+           f"Provider **{provider}**, model `{model}`. {len(rows)} turns, "
+           f"all of them scored.", "",
+           "Four axes, reported apart because they fail for different "
+           "reasons and are fixed in different places.", "",
+           "- **Action** is routing: which of the twelve things the turn "
+           "decided this was. A change is scored on what it set out to do, "
+           "so a `delete_dashboard` the server then declines still counts as "
+           "routed correctly — declining it is the application's job, and it "
+           "has its own tests.",
+           "- **Query** is grammar: when the turn ran a query, was it the "
+           "right one.",
+           "- **Plan** is the second call: having routed to a change, did it "
+           "propose the right cards, or name the right card to move or "
+           "remove. Kept apart from action accuracy so it is obvious which "
+           "of the two calls went wrong.",
+           "- **Claims** is verification: did the figures survive being "
+           "recomputed from the rows.", "",
+           "No turn in this suite changed anything. A change is proposed as "
+           "a frozen plan and applied only by a separate confirmation, so "
+           "what is scored here is the proposal.", "",
+           "| Set | Turns | Action | Query | Plan | Claims |",
+           "|---|---|---|---|---|---|"]
+    for label, subset in (("easy", easy), ("hard", hard), ("all", rows)):
         out.append(f"| {label} | {len(subset)} | {pct(subset, 'action_ok')} "
-                   f"| {pct(subset, 'query_ok')} | {pct(subset, 'claims_ok')} |")
+                   f"| {pct(subset, 'query_ok')} | {pct(subset, 'plan_ok')} "
+                   f"| {pct(subset, 'claims_ok')} |")
 
-    misses = [r for r in live if r["action_ok"] is False
-              or r["query_ok"] is False or r["claims_ok"] is False]
+    misses = [r for r in rows if r["action_ok"] is False
+              or r["query_ok"] is False or r["plan_ok"] is False
+              or r["claims_ok"] is False]
     if misses:
         out += ["", "## Misses", ""]
         for r in misses:
@@ -231,21 +285,25 @@ def report(provider: str, model: str, rows: list[dict]) -> str:
                             f"wanted `{r['expected_action']}`")
             if r["query_ok"] is False:
                 bits.append("query did not match")
+            if r["plan_ok"] is False:
+                bits.append(r["detail"] or "the plan did not match")
             if r["claims_ok"] is False:
                 bits.append(r["detail"] or "claim check failed")
             out.append(f"- **{r['id']}** ({r['tags']}): {'; '.join(bits)}")
 
+    declined = [r for r in rows if r["action_ok"] and r["plan_ok"] is None
+                and r["got_action"] not in SPOKEN and r["detail"]]
+    if declined:
+        out += ["", "## Routed, then declined by the server", "",
+                "The intent was expressible and the application refused it. "
+                "That is a correct outcome, and the rule behind each one is "
+                "pinned by a test rather than by this suite.", ""]
+        for r in declined:
+            out.append(f"- **{r['id']}**: `{r['got_action']}` — {r['detail']}")
+
     routed = Counter(r["got_action"] for r in rows)
     out += ["", "## Actions chosen", "",
             ", ".join(f"`{a}` {n}" for a, n in sorted(routed.items()))]
-
-    if blocked:
-        out += ["", "## Not yet routable", "",
-                "What each of these fell back to, which is the best available "
-                "read on whether the intent was understood at all:", ""]
-        for r in blocked:
-            out.append(f"- **{r['id']}**: wanted `{r['expected_action']}`, "
-                       f"fell back to `{r['got_action']}`")
     return "\n".join(out) + "\n"
 
 
