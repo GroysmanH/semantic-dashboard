@@ -1,4 +1,4 @@
-.PHONY: up down reset logs seed test eval eval-anthropic models types psql validate-all
+.PHONY: up down reset logs seed test eval eval-anthropic eval-chat models types psql validate-all
 
 up:
 	docker compose up -d --build
@@ -25,6 +25,9 @@ test:
 # per model and a full sweep is 360 calls; on Haiku it costs about $0.30.
 eval:
 	docker compose exec -T backend python -m eval.run_eval
+
+eval-chat:
+	docker compose exec -T backend python -m eval.run_chat_eval
 
 eval-gemini:
 	docker compose exec -T backend python -m eval.run_eval --provider gemini

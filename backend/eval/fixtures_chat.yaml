@@ -1,0 +1,341 @@
+# Chat fixtures.
+#
+# Written before the chat prompt is tuned, for the same reason the query
+# fixtures were: a suite written afterwards scores the prompt you already
+# have rather than the behaviour you wanted.
+#
+# Two things are scored separately, because they fail for different reasons
+# and get fixed in different places:
+#
+#   action accuracy   did it choose answer / run_query / clarify / refuse /
+#                     new_cards / new_dashboard / edit_card / layout /
+#                     rename_dashboard / reorder_dashboards / delete_card /
+#                     delete_dashboard
+#   query accuracy    when the action carries a semantic query, is the query
+#                     right
+#
+# A turn that picks the wrong action and writes a flawless query is a
+# routing failure. One that picks the right action and writes a bad query is
+# a grammar failure. Averaging them hides both.
+#
+# `board` names a preset defined in boards.yaml-style blocks at the top of
+# this file. `share_rows` is the resolved AND of the two data gates, so
+# `false` fixtures assert behaviour when values are not in scope at all.
+#
+# Tags: easy   the action is stated almost literally in the utterance
+#       hard   something in the utterance pulls towards the wrong action
+
+# Boards are built for real: each card is rendered through the same
+# compile -> execute -> chart path a live card uses, so the rows the model
+# sees are the rows the warehouse actually returns. Mock rows would test
+# the prompt against data that never existed.
+boards:
+  operations:
+    title: Operations
+    cards:
+      - id: oil_by_region
+        title: Oil production by region
+        query:
+          entity: production
+          measures: [oil]
+          dimensions: [{field: region}]
+      # The share column holds a fraction (0.264), not a percentage.
+      # That mismatch is a real source of wrong claims, so it is in the
+      # fixture board rather than described in a comment.
+      - id: shares
+        title: Shares of total oil production by region
+        query:
+          entity: production
+          measures: [{name: oil, transform: percent_of_total}]
+          dimensions: [{field: region}]
+      - id: wells_map
+        title: Top 5 wells in Mangystau by oil production
+        query:
+          entity: production
+          measures: [oil]
+          dimensions: [{field: well_name}]
+          filters: [{field: region, op: "=", value: Mangystau}]
+          order_by: [{field: oil, dir: desc}]
+          limit: 5
+  # A second dashboard, so "the other board" is a real place the chat can
+  # name but cannot read.
+  drilling:
+    title: Drilling
+    cards:
+      - id: downtime
+        title: Downtime by region
+        query:
+          entity: production
+          measures: [downtime]
+          dimensions: [{field: region}]
+  empty:
+    title: Blank
+    cards: []
+
+fixtures:
+
+# ------------------------------------------------------------------ easy
+# The action is close to stated. These establish the floor: a model that
+# misses these is not routing at all.
+
+- id: answer_from_a_visible_card
+  tags: [easy]
+  utterance: which region produced the most oil?
+  board: operations
+  share_rows: true
+  expected_action: answer
+  expects_claim: true
+
+- id: answer_about_structure_with_data_off
+  tags: [easy]
+  utterance: what does the oil production card show?
+  board: operations
+  share_rows: false
+  expected_action: answer
+  expects_claim: false
+  note: structure is answerable with no values in scope
+
+- id: refuse_an_undefined_metric
+  tags: [easy]
+  utterance: what is the drilling cost per well?
+  board: operations
+  share_rows: true
+  expected_action: refuse
+  expects_missing_metric: true
+
+- id: clarify_an_ambiguous_measure
+  tags: [easy]
+  utterance: show me production by region
+  board: operations
+  share_rows: true
+  expected_action: clarify
+  note: production maps to both oil and gas; guessing is the failure
+
+- id: add_one_card
+  tags: [easy]
+  utterance: add a card showing gas production by region
+  board: operations
+  share_rows: false
+  expected_action: new_cards
+  expected_cards: 1
+
+- id: build_a_dashboard
+  tags: [easy]
+  utterance: build me a dashboard about well downtime
+  board: operations
+  share_rows: false
+  expected_action: new_dashboard
+
+- id: query_for_data_not_on_screen
+  tags: [easy]
+  utterance: what was water production by month last year?
+  board: operations
+  share_rows: true
+  expected_action: run_query
+  expected:
+    entity: production
+    measures: [water]
+    dimensions:
+      - field: reading_date
+        grain: month
+    filters:
+      - field: reading_date
+        op: in_year
+        value: "{{last_year}}"
+
+- id: rename_this_dashboard
+  tags: [easy]
+  utterance: rename this dashboard to Production
+  board: operations
+  share_rows: false
+  expected_action: rename_dashboard
+
+- id: remove_a_named_card
+  tags: [easy]
+  utterance: remove the wells map card
+  board: operations
+  share_rows: false
+  expected_action: delete_card
+  expected_target: wells_map
+
+- id: resize_a_card
+  tags: [easy]
+  utterance: make the wells map full width
+  board: operations
+  share_rows: false
+  expected_action: layout
+  expected_target: wells_map
+
+- id: refuse_a_forecast
+  tags: [easy]
+  utterance: forecast oil production for next quarter
+  board: operations
+  share_rows: true
+  expected_action: refuse
+  note: no forecasting in the grammar, and no data about the future
+
+- id: answer_on_an_empty_dashboard
+  tags: [easy]
+  utterance: what is on this dashboard?
+  board: empty
+  share_rows: true
+  expected_action: answer
+  expects_claim: false
+
+# ------------------------------------------------------------------ hard
+# Each of these pulls towards a plausible wrong answer.
+
+- id: three_cards_is_still_this_dashboard
+  tags: [hard]
+  utterance: add three cards for gas, water and downtime by region
+  board: operations
+  share_rows: false
+  expected_action: new_cards
+  expected_cards: 3
+  note: >
+    Card count is not the trigger for a new dashboard. Three cards here is
+    three cards here, and answering new_dashboard moves the user's furniture.
+
+- id: a_stated_destination_beats_the_wording
+  tags: [hard]
+  utterance: build a production dashboard, but put the cards on this one
+  board: operations
+  share_rows: false
+  expected_action: new_cards
+  note: the explicit destination wins over the word "dashboard"
+
+- id: a_comparison_needs_one_claim_per_figure
+  tags: [hard]
+  utterance: how does Atyrau compare with Aktobe on oil?
+  board: operations
+  share_rows: true
+  expected_action: answer
+  expects_claim: true
+  min_claims: 2
+  note: >
+    A sentence carrying two figures cannot be checked as one claim, so the
+    turn has to split it.
+
+- id: a_share_column_is_already_a_share
+  tags: [hard]
+  utterance: what share of total oil does West Kazakhstan have?
+  board: operations
+  share_rows: true
+  expected_action: answer
+  expects_claim: true
+  note: >
+    The column holds 0.264 and the answer says 26.4%. A percentage claim
+    over one operand, not a division of two.
+
+- id: a_superlative_needs_no_number
+  tags: [hard]
+  utterance: which region leads on oil? just name it, no figures
+  board: operations
+  share_rows: true
+  expected_action: answer
+  expects_claim: false
+  note: >
+    A qualitative sentence is a legitimate answer. Attaching a numeric
+    claim to it and then failing to verify one is the trap.
+
+- id: values_are_refused_when_the_gate_is_shut
+  tags: [hard]
+  utterance: which region produced the most oil, and how much?
+  board: operations
+  share_rows: false
+  expected_action: answer
+  expects_claim: false
+  forbids_figures: true
+  note: >
+    With no values in scope the turn must say so and offer to build a card,
+    never estimate. Any digit in the answer is a failure.
+
+- id: another_dashboard_is_named_not_read
+  tags: [hard]
+  utterance: what is the downtime figure on the drilling dashboard?
+  board: operations
+  share_rows: true
+  expected_action: run_query
+  note: >
+    Only the active dashboard is in context. The other board is listed by
+    name, so the model must fetch rather than invent, and must not claim to
+    read a card it cannot see.
+
+- id: four_dimensions_has_nowhere_to_go
+  tags: [hard]
+  utterance: show oil by region, by well type, by month and by well
+  board: operations
+  share_rows: false
+  expected_action: refuse
+  note: >
+    The grammar stops a query naming four dimensions; nothing stops a model
+    naming three when it was asked for four. That silent drop is the failure
+    this fixture exists for.
+
+- id: a_cross_grain_ratio_is_not_expressible
+  tags: [hard]
+  utterance: what is daily oil divided by monthly gas?
+  board: operations
+  share_rows: false
+  expected_action: refuse
+
+- id: a_pronoun_resolves_against_the_board
+  tags: [hard]
+  utterance: break the oil one down by well type as well
+  board: operations
+  share_rows: false
+  expected_action: edit_card
+  expected_target: oil_by_region
+  note: >
+    "the oil one" is a reference to a card on screen; history is not the
+    source of truth for which.
+
+- id: deleting_the_last_dashboard_is_refused
+  tags: [hard]
+  utterance: delete this dashboard
+  board: empty
+  only_board: true
+  share_rows: false
+  expected_action: delete_dashboard
+  expects_server_refusal: true
+  note: >
+    The intent is legitimate and the server refuses it. Scored on the
+    action, with the refusal asserted separately, because a model that
+    declines to express the intent is also wrong.
+
+- id: a_number_that_is_not_on_the_board
+  tags: [hard]
+  utterance: what was oil production in 2019?
+  board: operations
+  share_rows: true
+  expected_action: run_query
+  note: >
+    Not on any card, and older than the seeded data. The turn must query
+    rather than read a number off a card that does not contain it.
+
+- id: an_instruction_that_is_two_actions
+  tags: [hard]
+  utterance: rename this to Production and add a gas card
+  board: operations
+  share_rows: false
+  expected_action: new_cards
+  accepts_actions: [new_cards, rename_dashboard, clarify]
+  note: >
+    One action per turn. Any of these is defensible; silently doing one and
+    claiming both is not, so the assertion is on what it says it did.
+
+- id: a_question_that_is_really_a_chart_request
+  tags: [hard]
+  utterance: I want to see oil by month as a line
+  board: operations
+  share_rows: false
+  expected_action: new_cards
+  expected_cards: 1
+  note: reads like a statement of desire, not an imperative
+
+- id: reordering_names_two_dashboards
+  tags: [hard]
+  utterance: put drilling before operations
+  board: operations
+  share_rows: false
+  expected_action: reorder_dashboards
