@@ -37,6 +37,11 @@ EVENT_COLUMNS = "id, action_id, kind, payload, created_at"
 TRANSIENT_COLUMNS = (
     "id, thread_id, query, chart_hint, title, cache, expires_at, created_at"
 )
+PLAN_STATUSES = {"pending", "confirmed", "cancelled"}
+ACTION_STATUSES = {
+    "queued", "running", "completed", "completed_with_errors", "stopped",
+    "failed", "cancelled", "undone",
+}
 
 
 class PendingPlanExistsError(RuntimeError):
@@ -77,13 +82,15 @@ def _q(
 
 
 def create_thread(*, conn=None) -> dict[str, Any]:
-    return _q(
-        f"INSERT INTO app.chat_thread (id) VALUES (%s) "
-        f"RETURNING {THREAD_COLUMNS}",
-        (uuid.uuid4(),),
-        fetch="one",
-        conn=conn,
-    )
+    with _connection(conn) as active:
+        purge_expired_actions(conn=active)
+        return _q(
+            f"INSERT INTO app.chat_thread (id) VALUES (%s) "
+            f"RETURNING {THREAD_COLUMNS}",
+            (uuid.uuid4(),),
+            fetch="one",
+            conn=active,
+        )
 
 
 def get_thread(thread_id: uuid.UUID, *, conn=None) -> dict[str, Any] | None:
@@ -197,8 +204,10 @@ def get_pending_plan(
 def transition_plan(
     plan_id: uuid.UUID, *, expected: str, status: str, conn=None
 ) -> dict[str, Any]:
-    if status not in {"pending", "confirmed", "cancelled"}:
-        raise ValueError(f"invalid plan status: {status}")
+    if expected not in PLAN_STATUSES or status not in PLAN_STATUSES:
+        raise ValueError("unknown plan status")
+    if expected != "pending" or status not in {"confirmed", "cancelled"}:
+        raise ValueError("plans may transition only from pending to a terminal state")
     plan = _q(
         "UPDATE app.chat_plan SET status = %s, updated_at = now() "
         f"WHERE id = %s AND status = %s RETURNING {PLAN_COLUMNS}",
@@ -243,7 +252,8 @@ def create_action(
 
 def get_action(action_id: uuid.UUID, *, conn=None) -> dict[str, Any] | None:
     return _q(
-        f"SELECT {ACTION_COLUMNS} FROM app.chat_action WHERE id = %s",
+        f"SELECT {ACTION_COLUMNS} FROM app.chat_action WHERE id = %s "
+        "AND NOT (thread_id IS NULL AND purge_after <= now())",
         (action_id,),
         fetch="one",
         conn=conn,
@@ -253,6 +263,13 @@ def get_action(action_id: uuid.UUID, *, conn=None) -> dict[str, Any] | None:
 def transition_action(
     action_id: uuid.UUID, *, expected: str, status: str, conn=None
 ) -> dict[str, Any]:
+    """Compare-and-set between known states.
+
+    The graph stays deliberately flexible because generation retries can
+    resume or terminate work from more than one non-terminal state.
+    """
+    if expected not in ACTION_STATUSES or status not in ACTION_STATUSES:
+        raise ValueError("unknown action status")
     action = _q(
         "UPDATE app.chat_action SET status = %s, updated_at = now() "
         f"WHERE id = %s AND status = %s RETURNING {ACTION_COLUMNS}",
@@ -367,6 +384,14 @@ def purge_expired_transients(*, conn=None) -> int:
     )
 
 
+def purge_expired_actions(*, conn=None) -> int:
+    return _q(
+        "DELETE FROM app.chat_action "
+        "WHERE thread_id IS NULL AND purge_after <= now()",
+        conn=conn,
+    )
+
+
 def clear_thread(
     thread_id: uuid.UUID, *, tombstone_days: int, conn=None
 ) -> None:
@@ -376,10 +401,7 @@ def clear_thread(
     with _connection(conn) as active, active.cursor() as cur:
         # Opportunistic retention cleanup is intentionally global but can
         # touch only already-detached actions whose deadline has passed.
-        cur.execute(
-            "DELETE FROM app.chat_action "
-            "WHERE thread_id IS NULL AND purge_after <= now()"
-        )
+        purge_expired_actions(conn=active)
         cur.execute(
             "UPDATE app.chat_action_item SET status = 'cancelled', "
             "updated_at = now() WHERE status IN ('queued', 'running') "

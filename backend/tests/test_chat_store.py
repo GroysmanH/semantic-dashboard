@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -8,12 +9,50 @@ from app.db import app_pool
 from app.store import chat
 
 
+@pytest.fixture(autouse=True)
+def isolate_chat_rows():
+    """Remove every row this test created, including retained tombstones."""
+    with app_pool.connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id FROM app.chat_event")
+        before_events = {row[0] for row in cur.fetchall()}
+        cur.execute("SELECT id FROM app.chat_action_item")
+        before_items = {row[0] for row in cur.fetchall()}
+        cur.execute("SELECT id FROM app.chat_action")
+        before_actions = {row[0] for row in cur.fetchall()}
+        cur.execute("SELECT id FROM app.chat_thread")
+        before_threads = {row[0] for row in cur.fetchall()}
+
+    yield
+
+    with app_pool.connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT id FROM app.chat_event")
+        events = [row[0] for row in cur.fetchall() if row[0] not in before_events]
+        if events:
+            cur.execute("DELETE FROM app.chat_event WHERE id = ANY(%s)", (events,))
+        cur.execute("SELECT id FROM app.chat_action_item")
+        items = [row[0] for row in cur.fetchall() if row[0] not in before_items]
+        if items:
+            cur.execute(
+                "DELETE FROM app.chat_action_item WHERE id = ANY(%s)",
+                (items,),
+            )
+        cur.execute("SELECT id FROM app.chat_action")
+        actions = [
+            row[0] for row in cur.fetchall() if row[0] not in before_actions
+        ]
+        if actions:
+            cur.execute("DELETE FROM app.chat_action WHERE id = ANY(%s)", (actions,))
+        cur.execute("SELECT id FROM app.chat_thread")
+        threads = [
+            row[0] for row in cur.fetchall() if row[0] not in before_threads
+        ]
+        if threads:
+            cur.execute("DELETE FROM app.chat_thread WHERE id = ANY(%s)", (threads,))
+
+
 @pytest.fixture
 def thread():
-    created = chat.create_thread()
-    yield created
-    if chat.get_thread(created["id"]):
-        chat.clear_thread(created["id"], tombstone_days=1)
+    return chat.create_thread()
 
 
 def pending(thread_id, suffix="one"):
@@ -67,6 +106,8 @@ def test_only_one_pending_plan_exists_and_transitions_are_compare_and_set(thread
     assert chat.get_pending_plan(thread["id"]) is None
     with pytest.raises(chat.PlanTransitionError):
         chat.transition_plan(plan["id"], expected="pending", status="cancelled")
+    with pytest.raises(ValueError):
+        chat.transition_plan(plan["id"], expected="confirmed", status="cancelled")
 
 
 def test_actions_effects_ordered_items_and_events_round_trip(thread):
@@ -90,6 +131,8 @@ def test_actions_effects_ordered_items_and_events_round_trip(thread):
     assert [event["id"] for event in chat.list_events(action["id"], after_id=one["id"])] == [
         two["id"],
     ]
+    with pytest.raises(ValueError):
+        chat.transition_action(action["id"], expected="queued", status="pending")
 
 
 def test_transients_expire_and_are_purged(thread):
@@ -119,44 +162,83 @@ def test_clear_thread_cancels_active_work_and_detaches_completed_actions(thread)
         completed_plan, provider="gemini", model="test", effects={"done": True},
     )
     chat.transition_action(completed["id"], expected="queued", status="completed")
+    completed_item = chat.append_action_item(
+        completed["id"], ordinal=0, request={"title": "kept"}, status="succeeded",
+    )
+    completed_event = chat.append_event(completed["id"], "done", {"kept": True})
 
     active_plan = pending(thread["id"], "active")
     chat.transition_plan(active_plan["id"], expected="pending", status="confirmed")
     active = chat.create_action(
         active_plan, provider="gemini", model="test", effects={"done": False},
     )
+    chat.transition_action(active["id"], expected="queued", status="running")
+    queued_item = chat.append_action_item(
+        active["id"], ordinal=0, request={"title": "queued"}, status="queued",
+    )
+    running_item = chat.append_action_item(
+        active["id"], ordinal=1, request={"title": "running"}, status="running",
+    )
+    waiting_plan = pending(thread["id"], "waiting")
     transient = chat.save_transient(
         thread["id"], query={"entity": "production", "measures": ["oil"]},
         chart_hint=None, title=None, cache={"rows": []}, ttl_seconds=60,
     )
 
+    before_clear = datetime.now(timezone.utc)
     chat.clear_thread(thread["id"], tombstone_days=2)
+    after_clear = datetime.now(timezone.utc)
 
     assert chat.get_thread(thread["id"]) is None
     assert chat.list_messages(thread["id"]) == []
+    assert chat.get_pending_plan(thread["id"]) is None
+    with app_pool.connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM app.chat_plan WHERE id = %s", (waiting_plan["id"],))
+        assert cur.fetchone()[0] == 0
     assert chat.get_transient(transient["id"]) is None
     detached = chat.get_action(completed["id"])
     assert detached["thread_id"] is None
-    assert detached["purge_after"] is not None
+    assert before_clear + timedelta(days=2) <= detached["purge_after"]
+    assert detached["purge_after"] <= after_clear + timedelta(days=2)
+    assert [item["id"] for item in chat.list_action_items(completed["id"])] == [
+        completed_item["id"],
+    ]
+    assert [event["id"] for event in chat.list_events(completed["id"])] == [
+        completed_event["id"],
+    ]
     cancelled = chat.get_action(active["id"])
     assert cancelled["status"] == "cancelled"
     assert cancelled["cancel_requested"] is True
     assert cancelled["thread_id"] is None
+    active_items = {item["id"]: item for item in chat.list_action_items(active["id"])}
+    assert active_items[queued_item["id"]]["status"] == "cancelled"
+    assert active_items[running_item["id"]]["status"] == "cancelled"
 
 
-def test_clear_thread_purges_detached_actions_only_after_retention(thread):
+def test_expired_action_purge_is_independent_and_cascades_children(thread):
     plan = pending(thread["id"])
     chat.transition_plan(plan["id"], expected="pending", status="confirmed")
     action = chat.create_action(plan, provider="gemini", model="test", effects={})
+    item = chat.append_action_item(
+        action["id"], ordinal=0, request={"title": "cascade"},
+    )
+    event = chat.append_event(action["id"], "plan", {"cascade": True})
     chat.transition_action(action["id"], expected="queued", status="completed")
     chat.clear_thread(thread["id"], tombstone_days=1)
     assert chat.get_action(action["id"]) is not None
+    assert chat.list_action_items(action["id"])[0]["id"] == item["id"]
+    assert chat.list_events(action["id"])[0]["id"] == event["id"]
 
     with app_pool.connection() as conn, conn.cursor() as cur:
         cur.execute(
             "UPDATE app.chat_action SET purge_after = now() - interval '1 second' WHERE id = %s",
             (action["id"],),
         )
-    another = chat.create_thread()
-    chat.clear_thread(another["id"], tombstone_days=1)
+        cur.execute("SELECT count(*) FROM app.chat_action WHERE id = %s", (action["id"],))
+        assert cur.fetchone()[0] == 1
+
     assert chat.get_action(action["id"]) is None
+    assert chat.purge_expired_actions() == 1
+    assert chat.get_action(action["id"]) is None
+    assert chat.list_action_items(action["id"]) == []
+    assert chat.list_events(action["id"]) == []

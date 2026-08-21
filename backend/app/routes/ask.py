@@ -76,6 +76,24 @@ def get_layer():
         "providers": {
             "default": settings.llm_provider,
             "available": configured_providers(),
+            # strong_available is false when a provider's two tiers are the
+            # same model id, as NVIDIA's deliberately are. Offering "think
+            # harder" there would promise an escalation that cannot happen.
+            "capabilities": {
+                provider: {
+                    "default_model": settings.models(provider)[0],
+                    "strong_model": settings.models(provider)[1],
+                    "strong_available":
+                        settings.models(provider)[0] != settings.models(provider)[1],
+                }
+                for provider in configured_providers()
+            },
+        },
+        # Both server gates, stated separately. The consent control has to
+        # be able to say which one is closed.
+        "chat": {
+            "enabled": settings.chat_enabled,
+            "data_sharing_permitted": settings.chat_sees_data,
         },
     }
 
@@ -91,7 +109,7 @@ def run_query(body: QueryIn):
     return to_payload(r)
 
 
-def _save(body: QueryIn, r) -> None:
+def _save(body: QueryIn, r, *, prompt: str | None = None) -> None:
     existing = store.get_card(body.card_id)
     if existing is None:
         raise HTTPException(404, "no such card")
@@ -101,16 +119,18 @@ def _save(body: QueryIn, r) -> None:
          "vega_spec": existing["vega_spec"]}
         if existing.get("semantic_query") else None
     )
-    store.update_card(
-        body.card_id,
-        semantic_query=r.semantic_query.model_dump(mode="json"),
-        chart_hint=r.chart_hint,
-        vega_spec=r.vega_spec,
-        title=body.title or existing["title"],
-        state=r.state,
-        cache=r.cache,
-        previous=previous,
-    )
+    fields = {
+        "semantic_query": r.semantic_query.model_dump(mode="json"),
+        "chart_hint": r.chart_hint,
+        "vega_spec": r.vega_spec,
+        "title": body.title or existing["title"],
+        "state": r.state,
+        "cache": r.cache,
+        "previous": previous,
+    }
+    if prompt is not None:
+        fields["prompt"] = prompt
+    store.update_card(body.card_id, **fields)
 
 
 @router.post("/ask")
@@ -157,8 +177,15 @@ def ask(body: AskIn):
         # already carries the full meaning.
         title = card["title"] if current is not None and card.get("title") \
             else outcome.title
-        _save(QueryIn(semantic_query=outcome.query, chart_hint=outcome.chart_hint,
-                      title=title, card_id=body.card_id), r)
-        store.update_card(body.card_id, prompt=body.question)
+        _save(
+            QueryIn(
+                semantic_query=outcome.query,
+                chart_hint=outcome.chart_hint,
+                title=title,
+                card_id=body.card_id,
+            ),
+            r,
+            prompt=body.question,
+        )
 
     return {"state": r.state, **who, "changed": changed, **to_payload(r)}

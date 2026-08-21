@@ -1,5 +1,635 @@
 {
   "$defs": {
+    "ActionProgressView": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "title": "Action",
+          "type": "string"
+        },
+        "board_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Board Id"
+        },
+        "completed": {
+          "default": 0,
+          "title": "Completed",
+          "type": "integer"
+        },
+        "failed": {
+          "default": 0,
+          "title": "Failed",
+          "type": "integer"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "pending",
+            "running",
+            "stopping",
+            "stopped",
+            "done",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "total": {
+          "default": 0,
+          "title": "Total",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "action",
+        "status"
+      ],
+      "title": "ActionProgressView",
+      "type": "object"
+    },
+    "AnswerAction": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "answer",
+          "default": "answer",
+          "title": "Action",
+          "type": "string"
+        },
+        "claims": {
+          "items": {
+            "$ref": "#/$defs/Claim"
+          },
+          "maxItems": 20,
+          "title": "Claims",
+          "type": "array"
+        },
+        "say": {
+          "maxLength": 2000,
+          "minLength": 1,
+          "title": "Say",
+          "type": "string"
+        }
+      },
+      "required": [
+        "say"
+      ],
+      "title": "AnswerAction",
+      "type": "object"
+    },
+    "CardEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "format": "uuid",
+          "title": "Action Id",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "card",
+          "default": "card",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/CardEventPayload"
+        },
+        "version": {
+          "const": 1,
+          "default": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "action_id",
+        "payload"
+      ],
+      "title": "CardEvent",
+      "type": "object"
+    },
+    "CardEventPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "board_id": {
+          "format": "uuid",
+          "title": "Board Id",
+          "type": "string"
+        },
+        "card_id": {
+          "format": "uuid",
+          "title": "Card Id",
+          "type": "string"
+        },
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "card_id",
+        "board_id"
+      ],
+      "title": "CardEventPayload",
+      "type": "object"
+    },
+    "CardRequest": {
+      "additionalProperties": false,
+      "description": "One card to build, as a question rather than a query.\n\nEach request goes through the existing validated ask() path, so a\ngenerated card is refusable and auditable one at a time and a single bad\ncard cannot poison a dashboard.",
+      "properties": {
+        "chart_hint": {
+          "anyOf": [
+            {
+              "enum": [
+                "line",
+                "bar",
+                "area",
+                "point",
+                "heatmap",
+                "big_number",
+                "pie",
+                "donut",
+                "stacked_bar",
+                "normalised_bar",
+                "scatter",
+                "bubble",
+                "map"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chart Hint"
+        },
+        "layout": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LayoutRequest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "question": {
+          "maxLength": 500,
+          "minLength": 1,
+          "title": "Question",
+          "type": "string"
+        },
+        "request_id": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "question",
+        "title"
+      ],
+      "title": "CardRequest",
+      "type": "object"
+    },
+    "ChatEventEnvelope": {
+      "additionalProperties": false,
+      "description": "Wraps the union so it can be validated and serialised as a model,\nfor the same reason ChatModelResponse wraps ChatAction.",
+      "properties": {
+        "event": {
+          "discriminator": {
+            "mapping": {
+              "card": "#/$defs/CardEvent",
+              "done": "#/$defs/DoneEvent",
+              "item_failed": "#/$defs/ItemFailedEvent",
+              "item_started": "#/$defs/ItemStartedEvent",
+              "plan": "#/$defs/PlanEvent",
+              "stopped": "#/$defs/StoppedEvent"
+            },
+            "propertyName": "kind"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/PlanEvent"
+            },
+            {
+              "$ref": "#/$defs/ItemStartedEvent"
+            },
+            {
+              "$ref": "#/$defs/CardEvent"
+            },
+            {
+              "$ref": "#/$defs/ItemFailedEvent"
+            },
+            {
+              "$ref": "#/$defs/StoppedEvent"
+            },
+            {
+              "$ref": "#/$defs/DoneEvent"
+            }
+          ],
+          "title": "Event"
+        }
+      },
+      "required": [
+        "event"
+      ],
+      "title": "ChatEventEnvelope",
+      "type": "object"
+    },
+    "ChatMessageOut": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "title": "Action",
+          "type": "string"
+        },
+        "active_board_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Active Board Id"
+        },
+        "active_board_title": {
+          "default": "",
+          "title": "Active Board Title",
+          "type": "string"
+        },
+        "claims": {
+          "items": {
+            "$ref": "#/$defs/VerifiedClaimView"
+          },
+          "title": "Claims",
+          "type": "array"
+        },
+        "clarify": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Clarify"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "data_exposed": {
+          "default": false,
+          "title": "Data Exposed",
+          "type": "boolean"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "missing_metric": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Missing Metric"
+        },
+        "refusal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Refusal"
+        },
+        "request_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Request Text"
+        },
+        "role": {
+          "enum": [
+            "user",
+            "assistant"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "say": {
+          "default": "",
+          "title": "Say",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "role",
+        "action",
+        "created_at"
+      ],
+      "title": "ChatMessageOut",
+      "type": "object"
+    },
+    "ChatThreadView": {
+      "additionalProperties": false,
+      "properties": {
+        "active_actions": {
+          "items": {
+            "$ref": "#/$defs/ActionProgressView"
+          },
+          "title": "Active Actions",
+          "type": "array"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "messages": {
+          "items": {
+            "$ref": "#/$defs/ChatMessageOut"
+          },
+          "title": "Messages",
+          "type": "array"
+        },
+        "pending_plan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PendingPlanView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "ChatThreadView",
+      "type": "object"
+    },
+    "ChatTurnResponse": {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "$ref": "#/$defs/ChatMessageOut"
+        },
+        "pending_plan": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PendingPlanView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "transient_result": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TransientResultView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "title": "ChatTurnResponse",
+      "type": "object"
+    },
+    "Claim": {
+      "additionalProperties": false,
+      "description": "One sentence containing exactly one figure, plus how to recompute it.\n\nVerification reads the operands out of the rows and redoes the\narithmetic; `displayed_value` is compared, never trusted.",
+      "properties": {
+        "displayed_value": {
+          "maxLength": 64,
+          "minLength": 1,
+          "title": "Displayed Value",
+          "type": "string"
+        },
+        "operands": {
+          "items": {
+            "$ref": "#/$defs/ClaimOperand"
+          },
+          "maxItems": 20,
+          "minItems": 1,
+          "title": "Operands",
+          "type": "array"
+        },
+        "operation": {
+          "enum": [
+            "exact",
+            "rounded",
+            "sum",
+            "difference",
+            "ratio",
+            "percentage",
+            "percentage_change"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
+        "text": {
+          "maxLength": 400,
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "displayed_value",
+        "operation",
+        "operands"
+      ],
+      "title": "Claim",
+      "type": "object"
+    },
+    "ClaimOperand": {
+      "additionalProperties": false,
+      "description": "Where a number came from: a card, a field, and the keys that pick out\nexactly one row. The model supplies the address, never the value.",
+      "properties": {
+        "card_id": {
+          "format": "uuid",
+          "title": "Card Id",
+          "type": "string"
+        },
+        "field": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Field",
+          "type": "string"
+        },
+        "keys": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": "Keys",
+          "type": "object"
+        }
+      },
+      "required": [
+        "card_id",
+        "field"
+      ],
+      "title": "ClaimOperand",
+      "type": "object"
+    },
+    "ClarifyAction": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "clarify",
+          "default": "clarify",
+          "title": "Action",
+          "type": "string"
+        },
+        "question": {
+          "maxLength": 400,
+          "minLength": 1,
+          "title": "Question",
+          "type": "string"
+        }
+      },
+      "required": [
+        "question"
+      ],
+      "title": "ClarifyAction",
+      "type": "object"
+    },
+    "DeleteCardAction": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "delete_card",
+          "default": "delete_card",
+          "title": "Action",
+          "type": "string"
+        },
+        "card_id": {
+          "format": "uuid",
+          "title": "Card Id",
+          "type": "string"
+        },
+        "say": {
+          "default": "",
+          "maxLength": 2000,
+          "title": "Say",
+          "type": "string"
+        }
+      },
+      "required": [
+        "card_id"
+      ],
+      "title": "DeleteCardAction",
+      "type": "object"
+    },
+    "DeleteDashboardAction": {
+      "additionalProperties": false,
+      "description": "Chat deletion is soft and reversible, and the server refuses to\nremove the last remaining dashboard.",
+      "properties": {
+        "action": {
+          "const": "delete_dashboard",
+          "default": "delete_dashboard",
+          "title": "Action",
+          "type": "string"
+        },
+        "board_id": {
+          "format": "uuid",
+          "title": "Board Id",
+          "type": "string"
+        },
+        "say": {
+          "default": "",
+          "maxLength": 2000,
+          "title": "Say",
+          "type": "string"
+        }
+      },
+      "required": [
+        "board_id"
+      ],
+      "title": "DeleteDashboardAction",
+      "type": "object"
+    },
     "DimensionRef": {
       "additionalProperties": false,
       "properties": {
@@ -30,6 +660,131 @@
         "field"
       ],
       "title": "DimensionRef",
+      "type": "object"
+    },
+    "DoneEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "format": "uuid",
+          "title": "Action Id",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "done",
+          "default": "done",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/DoneEventPayload"
+        },
+        "version": {
+          "const": 1,
+          "default": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "action_id",
+        "payload"
+      ],
+      "title": "DoneEvent",
+      "type": "object"
+    },
+    "DoneEventPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "completed": {
+          "default": 0,
+          "title": "Completed",
+          "type": "integer"
+        },
+        "failed": {
+          "default": 0,
+          "title": "Failed",
+          "type": "integer"
+        }
+      },
+      "title": "DoneEventPayload",
+      "type": "object"
+    },
+    "EditCardAction": {
+      "additionalProperties": false,
+      "description": "Carries the complete replacement query, not words to re-interpret.\n\nThe confirmation preview shows an exact deterministic diff, and that is\nonly possible if the final query is already in hand: re-asking a model\nat confirmation time would mean confirming one thing and applying\nanother.",
+      "properties": {
+        "action": {
+          "const": "edit_card",
+          "default": "edit_card",
+          "title": "Action",
+          "type": "string"
+        },
+        "card_id": {
+          "format": "uuid",
+          "title": "Card Id",
+          "type": "string"
+        },
+        "chart_hint": {
+          "anyOf": [
+            {
+              "enum": [
+                "line",
+                "bar",
+                "area",
+                "point",
+                "heatmap",
+                "big_number",
+                "pie",
+                "donut",
+                "stacked_bar",
+                "normalised_bar",
+                "scatter",
+                "bubble",
+                "map"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chart Hint"
+        },
+        "say": {
+          "default": "",
+          "maxLength": 2000,
+          "title": "Say",
+          "type": "string"
+        },
+        "semantic_query": {
+          "$ref": "#/$defs/SemanticQuery"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        }
+      },
+      "required": [
+        "card_id",
+        "semantic_query"
+      ],
+      "title": "EditCardAction",
       "type": "object"
     },
     "Filter": {
@@ -99,6 +854,207 @@
       "title": "Filter",
       "type": "object"
     },
+    "ItemFailedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "format": "uuid",
+          "title": "Action Id",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "item_failed",
+          "default": "item_failed",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ItemFailedEventPayload"
+        },
+        "version": {
+          "const": 1,
+          "default": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "action_id",
+        "payload"
+      ],
+      "title": "ItemFailedEvent",
+      "type": "object"
+    },
+    "ItemFailedEventPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "refused": {
+          "default": false,
+          "title": "Refused",
+          "type": "boolean"
+        },
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "reason"
+      ],
+      "title": "ItemFailedEventPayload",
+      "type": "object"
+    },
+    "ItemStartedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "format": "uuid",
+          "title": "Action Id",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "item_started",
+          "default": "item_started",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/ItemStartedEventPayload"
+        },
+        "version": {
+          "const": 1,
+          "default": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "action_id",
+        "payload"
+      ],
+      "title": "ItemStartedEvent",
+      "type": "object"
+    },
+    "ItemStartedEventPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "title"
+      ],
+      "title": "ItemStartedEventPayload",
+      "type": "object"
+    },
+    "LayoutAction": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "layout",
+          "default": "layout",
+          "title": "Action",
+          "type": "string"
+        },
+        "changes": {
+          "items": {
+            "$ref": "#/$defs/LayoutChange"
+          },
+          "maxItems": 24,
+          "minItems": 1,
+          "title": "Changes",
+          "type": "array"
+        },
+        "say": {
+          "default": "",
+          "maxLength": 2000,
+          "title": "Say",
+          "type": "string"
+        }
+      },
+      "required": [
+        "changes"
+      ],
+      "title": "LayoutAction",
+      "type": "object"
+    },
+    "LayoutChange": {
+      "additionalProperties": false,
+      "properties": {
+        "card_id": {
+          "format": "uuid",
+          "title": "Card Id",
+          "type": "string"
+        },
+        "layout": {
+          "$ref": "#/$defs/LayoutRequest"
+        }
+      },
+      "required": [
+        "card_id",
+        "layout"
+      ],
+      "title": "LayoutChange",
+      "type": "object"
+    },
+    "LayoutRequest": {
+      "additionalProperties": false,
+      "description": "A proposed position. The server clamps and collision-resolves it;\nthese bounds only stop obvious nonsense reaching that resolver.",
+      "properties": {
+        "h": {
+          "exclusiveMinimum": 0,
+          "title": "H",
+          "type": "integer"
+        },
+        "w": {
+          "exclusiveMinimum": 0,
+          "maximum": 12,
+          "title": "W",
+          "type": "integer"
+        },
+        "x": {
+          "exclusiveMaximum": 12,
+          "minimum": 0,
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "minimum": 0,
+          "title": "Y",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "w",
+        "h"
+      ],
+      "title": "LayoutRequest",
+      "type": "object"
+    },
     "MeasureRef": {
       "additionalProperties": false,
       "description": "A measure, optionally transformed.\n\nBare strings are still legal everywhere a measure is named -- every\nsaved card and every existing fixture predates this model -- and are\nnormalised into `MeasureRef(name=...)` on the way in.",
@@ -162,6 +1118,75 @@
       "title": "MeasureRef",
       "type": "object"
     },
+    "NewCardsAction": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "new_cards",
+          "default": "new_cards",
+          "title": "Action",
+          "type": "string"
+        },
+        "cards": {
+          "items": {
+            "$ref": "#/$defs/CardRequest"
+          },
+          "maxItems": 6,
+          "minItems": 1,
+          "title": "Cards",
+          "type": "array"
+        },
+        "say": {
+          "default": "",
+          "maxLength": 2000,
+          "title": "Say",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cards"
+      ],
+      "title": "NewCardsAction",
+      "type": "object"
+    },
+    "NewDashboardAction": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "new_dashboard",
+          "default": "new_dashboard",
+          "title": "Action",
+          "type": "string"
+        },
+        "cards": {
+          "items": {
+            "$ref": "#/$defs/CardRequest"
+          },
+          "maxItems": 6,
+          "minItems": 1,
+          "title": "Cards",
+          "type": "array"
+        },
+        "say": {
+          "default": "",
+          "maxLength": 2000,
+          "title": "Say",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "title",
+        "cards"
+      ],
+      "title": "NewDashboardAction",
+      "type": "object"
+    },
     "OrderBy": {
       "additionalProperties": false,
       "properties": {
@@ -183,6 +1208,338 @@
         "field"
       ],
       "title": "OrderBy",
+      "type": "object"
+    },
+    "PendingPlanView": {
+      "additionalProperties": false,
+      "description": "A frozen plan awaiting confirmation.\n\nConfirmation never calls the planning model again, so what is shown here\nis exactly what will be applied.",
+      "properties": {
+        "action": {
+          "title": "Action",
+          "type": "string"
+        },
+        "cards": {
+          "items": {
+            "$ref": "#/$defs/PlanCardPreview"
+          },
+          "title": "Cards",
+          "type": "array"
+        },
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "operations": {
+          "items": {
+            "$ref": "#/$defs/PlanOperation"
+          },
+          "title": "Operations",
+          "type": "array"
+        },
+        "say": {
+          "default": "",
+          "title": "Say",
+          "type": "string"
+        },
+        "stale": {
+          "default": false,
+          "title": "Stale",
+          "type": "boolean"
+        },
+        "target_board_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Board Id"
+        },
+        "target_board_title": {
+          "default": "",
+          "title": "Target Board Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "action",
+        "created_at"
+      ],
+      "title": "PendingPlanView",
+      "type": "object"
+    },
+    "PlanCardPreview": {
+      "additionalProperties": false,
+      "properties": {
+        "layout": {
+          "$ref": "#/$defs/LayoutRequest"
+        },
+        "question": {
+          "title": "Question",
+          "type": "string"
+        },
+        "request_id": {
+          "title": "Request Id",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "title",
+        "question",
+        "layout"
+      ],
+      "title": "PlanCardPreview",
+      "type": "object"
+    },
+    "PlanEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "format": "uuid",
+          "title": "Action Id",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "plan",
+          "default": "plan",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/PlanEventPayload"
+        },
+        "version": {
+          "const": 1,
+          "default": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "action_id",
+        "payload"
+      ],
+      "title": "PlanEvent",
+      "type": "object"
+    },
+    "PlanEventPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "board_id": {
+          "format": "uuid",
+          "title": "Board Id",
+          "type": "string"
+        },
+        "board_title": {
+          "title": "Board Title",
+          "type": "string"
+        },
+        "cards": {
+          "items": {
+            "$ref": "#/$defs/PlanCardPreview"
+          },
+          "title": "Cards",
+          "type": "array"
+        }
+      },
+      "required": [
+        "board_id",
+        "board_title"
+      ],
+      "title": "PlanEventPayload",
+      "type": "object"
+    },
+    "PlanOperation": {
+      "additionalProperties": false,
+      "description": "One line of an exact preview: what will change, stated in words the\nreader can check against the board in front of them.",
+      "properties": {
+        "after": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "After"
+        },
+        "before": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Before"
+        },
+        "board_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Board Id"
+        },
+        "board_title": {
+          "default": "",
+          "title": "Board Title",
+          "type": "string"
+        },
+        "card_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Card Id"
+        },
+        "card_title": {
+          "default": "",
+          "title": "Card Title",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "create_card",
+            "edit_card",
+            "move_card",
+            "delete_card",
+            "create_dashboard",
+            "rename_dashboard",
+            "reorder_dashboards",
+            "delete_dashboard"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "summary"
+      ],
+      "title": "PlanOperation",
+      "type": "object"
+    },
+    "RefuseAction": {
+      "additionalProperties": false,
+      "description": "Names the wall rather than hiding it, and offers the question to the\nlayer author. `missing_metric` and `request_text` power a copyable\nrequest without this app keeping a backlog.",
+      "properties": {
+        "action": {
+          "const": "refuse",
+          "default": "refuse",
+          "title": "Action",
+          "type": "string"
+        },
+        "missing_metric": {
+          "anyOf": [
+            {
+              "maxLength": 120,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Missing Metric"
+        },
+        "reason": {
+          "maxLength": 600,
+          "minLength": 1,
+          "title": "Reason",
+          "type": "string"
+        },
+        "request_text": {
+          "anyOf": [
+            {
+              "maxLength": 600,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Request Text"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "title": "RefuseAction",
+      "type": "object"
+    },
+    "RenameDashboardAction": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "rename_dashboard",
+          "default": "rename_dashboard",
+          "title": "Action",
+          "type": "string"
+        },
+        "board_id": {
+          "format": "uuid",
+          "title": "Board Id",
+          "type": "string"
+        },
+        "say": {
+          "default": "",
+          "maxLength": 2000,
+          "title": "Say",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "board_id",
+        "title"
+      ],
+      "title": "RenameDashboardAction",
       "type": "object"
     },
     "Render": {
@@ -371,6 +1728,91 @@
       "title": "Render",
       "type": "object"
     },
+    "ReorderDashboardsAction": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "reorder_dashboards",
+          "default": "reorder_dashboards",
+          "title": "Action",
+          "type": "string"
+        },
+        "order": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 64,
+          "minItems": 1,
+          "title": "Order",
+          "type": "array"
+        },
+        "say": {
+          "default": "",
+          "maxLength": 2000,
+          "title": "Say",
+          "type": "string"
+        }
+      },
+      "required": [
+        "order"
+      ],
+      "title": "ReorderDashboardsAction",
+      "type": "object"
+    },
+    "RunQueryAction": {
+      "additionalProperties": false,
+      "description": "A read-only query answered in the transcript. It renders with the\nsame trust surface as a card and can be promoted into one.",
+      "properties": {
+        "action": {
+          "const": "run_query",
+          "default": "run_query",
+          "title": "Action",
+          "type": "string"
+        },
+        "chart_hint": {
+          "anyOf": [
+            {
+              "enum": [
+                "line",
+                "bar",
+                "area",
+                "point",
+                "heatmap",
+                "big_number",
+                "pie",
+                "donut",
+                "stacked_bar",
+                "normalised_bar",
+                "scatter",
+                "bubble",
+                "map"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chart Hint"
+        },
+        "say": {
+          "default": "",
+          "maxLength": 2000,
+          "title": "Say",
+          "type": "string"
+        },
+        "semantic_query": {
+          "$ref": "#/$defs/SemanticQuery"
+        }
+      },
+      "required": [
+        "semantic_query"
+      ],
+      "title": "RunQueryAction",
+      "type": "object"
+    },
     "SemanticQuery": {
       "additionalProperties": false,
       "description": "One entity, N measures, up to 3 dimensions.\n\nDeliberately still no joins beyond declared `via` paths, no subqueries,\nno free-form expressions and no DML \u2014 those are not hard here, they are\nimpossible. Window functions arrived as a closed `Transform` enum the\ncompiler implements, which is a different thing from letting the model\nwrite one.",
@@ -423,10 +1865,313 @@
       ],
       "title": "SemanticQuery",
       "type": "object"
+    },
+    "SourceRef": {
+      "additionalProperties": false,
+      "description": "A clickable chip back to the card a figure came from.",
+      "properties": {
+        "board_id": {
+          "format": "uuid",
+          "title": "Board Id",
+          "type": "string"
+        },
+        "card_id": {
+          "format": "uuid",
+          "title": "Card Id",
+          "type": "string"
+        },
+        "card_title": {
+          "title": "Card Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "card_id",
+        "board_id",
+        "card_title"
+      ],
+      "title": "SourceRef",
+      "type": "object"
+    },
+    "StoppedEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "action_id": {
+          "format": "uuid",
+          "title": "Action Id",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "integer"
+        },
+        "kind": {
+          "const": "stopped",
+          "default": "stopped",
+          "title": "Kind",
+          "type": "string"
+        },
+        "payload": {
+          "$ref": "#/$defs/StoppedEventPayload"
+        },
+        "version": {
+          "const": 1,
+          "default": 1,
+          "title": "Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "action_id",
+        "payload"
+      ],
+      "title": "StoppedEvent",
+      "type": "object"
+    },
+    "StoppedEventPayload": {
+      "additionalProperties": false,
+      "properties": {
+        "completed": {
+          "default": 0,
+          "title": "Completed",
+          "type": "integer"
+        },
+        "remaining": {
+          "default": 0,
+          "title": "Remaining",
+          "type": "integer"
+        }
+      },
+      "title": "StoppedEventPayload",
+      "type": "object"
+    },
+    "TransientResultView": {
+      "additionalProperties": false,
+      "description": "A read-only chat query, with the same trust surface a card carries.",
+      "properties": {
+        "chart_hint": {
+          "anyOf": [
+            {
+              "enum": [
+                "line",
+                "bar",
+                "area",
+                "point",
+                "heatmap",
+                "big_number",
+                "pie",
+                "donut",
+                "stacked_bar",
+                "normalised_bar",
+                "scatter",
+                "bubble",
+                "map"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Chart Hint"
+        },
+        "compiled_sql": {
+          "default": "",
+          "title": "Compiled Sql",
+          "type": "string"
+        },
+        "data_max_ts": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Data Max Ts"
+        },
+        "expired": {
+          "default": false,
+          "title": "Expired",
+          "type": "boolean"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires At"
+        },
+        "fetched_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fetched At"
+        },
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "restatement": {
+          "title": "Restatement",
+          "type": "string"
+        },
+        "row_count": {
+          "default": 0,
+          "title": "Row Count",
+          "type": "integer"
+        },
+        "rows": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Rows",
+          "type": "array"
+        },
+        "semantic_query": {
+          "$ref": "#/$defs/SemanticQuery"
+        },
+        "vega_spec": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Vega Spec"
+        }
+      },
+      "required": [
+        "id",
+        "restatement",
+        "semantic_query"
+      ],
+      "title": "TransientResultView",
+      "type": "object"
+    },
+    "VerifiedClaimView": {
+      "additionalProperties": false,
+      "properties": {
+        "displayed_value": {
+          "title": "Displayed Value",
+          "type": "string"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/SourceRef"
+          },
+          "title": "Sources",
+          "type": "array"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "displayed_value"
+      ],
+      "title": "VerifiedClaimView",
+      "type": "object"
     }
   },
-  "description": "A single root so json2ts emits one file with shared $defs.",
+  "description": "A single root so json2ts emits one file with shared $defs.\n\nEvery chat model the browser touches is named here. A model reachable\nonly through a route body would be typed by hand on the other side,\nwhich is exactly the drift this file exists to prevent.",
   "properties": {
+    "chat_action": {
+      "discriminator": {
+        "mapping": {
+          "answer": "#/$defs/AnswerAction",
+          "clarify": "#/$defs/ClarifyAction",
+          "delete_card": "#/$defs/DeleteCardAction",
+          "delete_dashboard": "#/$defs/DeleteDashboardAction",
+          "edit_card": "#/$defs/EditCardAction",
+          "layout": "#/$defs/LayoutAction",
+          "new_cards": "#/$defs/NewCardsAction",
+          "new_dashboard": "#/$defs/NewDashboardAction",
+          "refuse": "#/$defs/RefuseAction",
+          "rename_dashboard": "#/$defs/RenameDashboardAction",
+          "reorder_dashboards": "#/$defs/ReorderDashboardsAction",
+          "run_query": "#/$defs/RunQueryAction"
+        },
+        "propertyName": "action"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/AnswerAction"
+        },
+        {
+          "$ref": "#/$defs/RunQueryAction"
+        },
+        {
+          "$ref": "#/$defs/ClarifyAction"
+        },
+        {
+          "$ref": "#/$defs/RefuseAction"
+        },
+        {
+          "$ref": "#/$defs/NewCardsAction"
+        },
+        {
+          "$ref": "#/$defs/EditCardAction"
+        },
+        {
+          "$ref": "#/$defs/NewDashboardAction"
+        },
+        {
+          "$ref": "#/$defs/LayoutAction"
+        },
+        {
+          "$ref": "#/$defs/RenameDashboardAction"
+        },
+        {
+          "$ref": "#/$defs/ReorderDashboardsAction"
+        },
+        {
+          "$ref": "#/$defs/DeleteCardAction"
+        },
+        {
+          "$ref": "#/$defs/DeleteDashboardAction"
+        }
+      ],
+      "title": "Chat Action"
+    },
+    "chat_event": {
+      "$ref": "#/$defs/ChatEventEnvelope"
+    },
+    "chat_pending_plan": {
+      "$ref": "#/$defs/PendingPlanView"
+    },
+    "chat_thread_view": {
+      "$ref": "#/$defs/ChatThreadView"
+    },
+    "chat_transient_result": {
+      "$ref": "#/$defs/TransientResultView"
+    },
+    "chat_turn_response": {
+      "$ref": "#/$defs/ChatTurnResponse"
+    },
     "render": {
       "$ref": "#/$defs/Render"
     },
@@ -436,7 +2181,13 @@
   },
   "required": [
     "semantic_query",
-    "render"
+    "render",
+    "chat_action",
+    "chat_turn_response",
+    "chat_thread_view",
+    "chat_pending_plan",
+    "chat_transient_result",
+    "chat_event"
   ],
   "title": "ApiContract",
   "type": "object"

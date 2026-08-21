@@ -5,6 +5,341 @@
  * and run json-schema-to-typescript to regenerate this file.
  */
 
+export type ChatAction =
+  | AnswerAction
+  | RunQueryAction
+  | ClarifyAction
+  | RefuseAction
+  | NewCardsAction
+  | EditCardAction
+  | NewDashboardAction
+  | LayoutAction
+  | RenameDashboardAction
+  | ReorderDashboardsAction
+  | DeleteCardAction
+  | DeleteDashboardAction;
+export type Action = "answer";
+/**
+ * @maxItems 20
+ */
+export type Claims =
+  | []
+  | [Claim]
+  | [Claim, Claim]
+  | [Claim, Claim, Claim]
+  | [Claim, Claim, Claim, Claim]
+  | [Claim, Claim, Claim, Claim, Claim]
+  | [Claim, Claim, Claim, Claim, Claim, Claim]
+  | [Claim, Claim, Claim, Claim, Claim, Claim, Claim]
+  | [Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim]
+  | [Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim]
+  | [Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim]
+  | [Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim]
+  | [Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim]
+  | [Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim]
+  | [Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim]
+  | [Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim]
+  | [Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim, Claim]
+  | [
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim
+    ]
+  | [
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim
+    ]
+  | [
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim
+    ]
+  | [
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim,
+      Claim
+    ];
+export type DisplayedValue = string;
+/**
+ * @minItems 1
+ * @maxItems 20
+ */
+export type Operands =
+  | [ClaimOperand]
+  | [ClaimOperand, ClaimOperand]
+  | [ClaimOperand, ClaimOperand, ClaimOperand]
+  | [ClaimOperand, ClaimOperand, ClaimOperand, ClaimOperand]
+  | [ClaimOperand, ClaimOperand, ClaimOperand, ClaimOperand, ClaimOperand]
+  | [ClaimOperand, ClaimOperand, ClaimOperand, ClaimOperand, ClaimOperand, ClaimOperand]
+  | [ClaimOperand, ClaimOperand, ClaimOperand, ClaimOperand, ClaimOperand, ClaimOperand, ClaimOperand]
+  | [ClaimOperand, ClaimOperand, ClaimOperand, ClaimOperand, ClaimOperand, ClaimOperand, ClaimOperand, ClaimOperand]
+  | [
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand
+    ]
+  | [
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand
+    ]
+  | [
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand
+    ]
+  | [
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand
+    ]
+  | [
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand
+    ]
+  | [
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand
+    ]
+  | [
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand
+    ]
+  | [
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand
+    ]
+  | [
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand
+    ]
+  | [
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand
+    ]
+  | [
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand
+    ]
+  | [
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand,
+      ClaimOperand
+    ];
+export type CardId = string;
+export type Field = string;
+export type Operation = "exact" | "rounded" | "sum" | "difference" | "ratio" | "percentage" | "percentage_change";
+export type Text = string;
+export type Say = string;
+export type Action1 = "run_query";
 export type ChartHint =
   | (
       | "line"
@@ -22,33 +357,16 @@ export type ChartHint =
       | "map"
     )
   | null;
-export type ChartRows =
-  | {
-      [k: string]: unknown;
-    }[]
-  | null;
-export type ChartType = string | null;
-export type CompiledSql = string | null;
-export type DataMaxTs = string | null;
-export type Error = string | null;
-export type ErrorReason = string | null;
-export type FetchedAt = string | null;
-export type FromCache = boolean;
-export type HintRejected = boolean;
-export type Restatement = string;
-export type RowCount = number;
-export type Rows = {
-  [k: string]: unknown;
-}[];
+export type Say1 = string;
 /**
  * @maxItems 3
  */
 export type Dimensions =
   [] | [DimensionRef] | [DimensionRef, DimensionRef] | [DimensionRef, DimensionRef, DimensionRef];
-export type Field = string;
+export type Field1 = string;
 export type Grain = ("day" | "month" | "quarter" | "year") | null;
 export type Entity = string;
-export type Field1 = string;
+export type Field2 = string;
 export type Op = "=" | "!=" | "in" | "between" | "in_year" | "last_n_days";
 export type Value = string | number | boolean | (string | number | boolean)[] | null;
 export type Filters = Filter[];
@@ -73,43 +391,335 @@ export type Transform =
   | null;
 export type Window = number | null;
 export type Dir = "asc" | "desc";
-export type Field2 = string;
+export type Field3 = string;
 export type OrderBy = OrderBy1[];
-export type State = "empty" | "ready" | "broken";
+export type Action2 = "clarify";
+export type Question = string;
+export type Action3 = "refuse";
+export type MissingMetric = string | null;
+export type Reason = string;
+export type RequestText = string | null;
+export type Action4 = "new_cards";
+/**
+ * @minItems 1
+ * @maxItems 6
+ */
+export type Cards =
+  | [CardRequest]
+  | [CardRequest, CardRequest]
+  | [CardRequest, CardRequest, CardRequest]
+  | [CardRequest, CardRequest, CardRequest, CardRequest]
+  | [CardRequest, CardRequest, CardRequest, CardRequest, CardRequest]
+  | [CardRequest, CardRequest, CardRequest, CardRequest, CardRequest, CardRequest];
+export type ChartHint1 =
+  | (
+      | "line"
+      | "bar"
+      | "area"
+      | "point"
+      | "heatmap"
+      | "big_number"
+      | "pie"
+      | "donut"
+      | "stacked_bar"
+      | "normalised_bar"
+      | "scatter"
+      | "bubble"
+      | "map"
+    )
+  | null;
+export type H = number;
+export type W = number;
+export type X = number;
+export type Y = number;
+export type Question1 = string;
+export type RequestId = string;
+export type Title = string;
+export type Say2 = string;
+export type Action5 = "edit_card";
+export type CardId1 = string;
+export type ChartHint2 =
+  | (
+      | "line"
+      | "bar"
+      | "area"
+      | "point"
+      | "heatmap"
+      | "big_number"
+      | "pie"
+      | "donut"
+      | "stacked_bar"
+      | "normalised_bar"
+      | "scatter"
+      | "bubble"
+      | "map"
+    )
+  | null;
+export type Say3 = string;
+export type Title1 = string | null;
+export type Action6 = "new_dashboard";
+/**
+ * @minItems 1
+ * @maxItems 6
+ */
+export type Cards1 =
+  | [CardRequest]
+  | [CardRequest, CardRequest]
+  | [CardRequest, CardRequest, CardRequest]
+  | [CardRequest, CardRequest, CardRequest, CardRequest]
+  | [CardRequest, CardRequest, CardRequest, CardRequest, CardRequest]
+  | [CardRequest, CardRequest, CardRequest, CardRequest, CardRequest, CardRequest];
+export type Say4 = string;
+export type Title2 = string;
+export type Action7 = "layout";
+/**
+ * @minItems 1
+ * @maxItems 24
+ */
+export type Changes = [LayoutChange, ...LayoutChange[]];
+export type CardId2 = string;
+export type Say5 = string;
+export type Action8 = "rename_dashboard";
+export type BoardId = string;
+export type Say6 = string;
+export type Title3 = string;
+export type Action9 = "reorder_dashboards";
+/**
+ * @minItems 1
+ * @maxItems 64
+ */
+export type Order = [string, ...string[]];
+export type Say7 = string;
+export type Action10 = "delete_card";
+export type CardId3 = string;
+export type Say8 = string;
+export type Action11 = "delete_dashboard";
+export type BoardId1 = string;
+export type Say9 = string;
+export type Event = PlanEvent | ItemStartedEvent | CardEvent | ItemFailedEvent | StoppedEvent | DoneEvent;
+export type ActionId = string;
+export type Id = number;
+export type Kind = "plan";
+export type BoardId2 = string;
+export type BoardTitle = string;
+export type Question2 = string;
+export type RequestId1 = string;
+export type Title4 = string;
+export type Cards2 = PlanCardPreview[];
+export type Version = 1;
+export type ActionId1 = string;
+export type Id1 = number;
+export type Kind1 = "item_started";
+export type RequestId2 = string;
+export type Title5 = string;
+export type Version1 = 1;
+export type ActionId2 = string;
+export type Id2 = number;
+export type Kind2 = "card";
+export type BoardId3 = string;
+export type CardId4 = string;
+export type RequestId3 = string;
+export type Version2 = 1;
+export type ActionId3 = string;
+export type Id3 = number;
+export type Kind3 = "item_failed";
+export type Reason1 = string;
+export type Refused = boolean;
+export type RequestId4 = string;
+export type Version3 = 1;
+export type ActionId4 = string;
+export type Id4 = number;
+export type Kind4 = "stopped";
+export type Completed = number;
+export type Remaining = number;
+export type Version4 = 1;
+export type ActionId5 = string;
+export type Id5 = number;
+export type Kind5 = "done";
+export type Completed1 = number;
+export type Failed = number;
+export type Version5 = 1;
+export type Action12 = string;
+export type Cards3 = PlanCardPreview[];
+export type CreatedAt = string;
+export type Id6 = string;
+export type After = string | null;
+export type Before = string | null;
+export type BoardId4 = string | null;
+export type BoardTitle1 = string;
+export type CardId5 = string | null;
+export type CardTitle = string;
+export type Kind6 =
+  | "create_card"
+  | "edit_card"
+  | "move_card"
+  | "delete_card"
+  | "create_dashboard"
+  | "rename_dashboard"
+  | "reorder_dashboards"
+  | "delete_dashboard";
+export type Summary = string;
+export type Operations = PlanOperation[];
+export type Say10 = string;
+export type Stale = boolean;
+export type TargetBoardId = string | null;
+export type TargetBoardTitle = string;
+export type Action13 = string;
+export type BoardId5 = string | null;
+export type Completed2 = number;
+export type Failed1 = number;
+export type Id7 = string;
+export type Status = "pending" | "running" | "stopping" | "stopped" | "done" | "failed";
+export type Total = number;
+export type ActiveActions = ActionProgressView[];
+export type Id8 = string;
+export type Action14 = string;
+export type ActiveBoardId = string | null;
+export type ActiveBoardTitle = string;
+export type DisplayedValue1 = string;
+export type BoardId6 = string;
+export type CardId6 = string;
+export type CardTitle1 = string;
+export type Sources = SourceRef[];
+export type Text1 = string;
+export type Claims1 = VerifiedClaimView[];
+export type Clarify = string | null;
+export type CreatedAt1 = string;
+export type DataExposed = boolean;
+export type Id9 = string;
+export type MissingMetric1 = string | null;
+export type Refusal = string | null;
+export type RequestText1 = string | null;
+export type Role = "user" | "assistant";
+export type Say11 = string;
+export type Messages = ChatMessageOut[];
+export type ChartHint3 =
+  | (
+      | "line"
+      | "bar"
+      | "area"
+      | "point"
+      | "heatmap"
+      | "big_number"
+      | "pie"
+      | "donut"
+      | "stacked_bar"
+      | "normalised_bar"
+      | "scatter"
+      | "bubble"
+      | "map"
+    )
+  | null;
+export type CompiledSql = string;
+export type DataMaxTs = string | null;
+export type Expired = boolean;
+export type ExpiresAt = string | null;
+export type FetchedAt = string | null;
+export type Id10 = string;
+export type Restatement = string;
+export type RowCount = number;
+export type Rows = {
+  [k: string]: unknown;
+}[];
 export type VegaSpec = {
+  [k: string]: unknown;
+} | null;
+export type ChartHint4 =
+  | (
+      | "line"
+      | "bar"
+      | "area"
+      | "point"
+      | "heatmap"
+      | "big_number"
+      | "pie"
+      | "donut"
+      | "stacked_bar"
+      | "normalised_bar"
+      | "scatter"
+      | "bubble"
+      | "map"
+    )
+  | null;
+export type ChartRows =
+  | {
+      [k: string]: unknown;
+    }[]
+  | null;
+export type ChartType = string | null;
+export type CompiledSql1 = string | null;
+export type DataMaxTs1 = string | null;
+export type Error = string | null;
+export type ErrorReason = string | null;
+export type FetchedAt1 = string | null;
+export type FromCache = boolean;
+export type HintRejected = boolean;
+export type Restatement1 = string;
+export type RowCount1 = number;
+export type Rows1 = {
+  [k: string]: unknown;
+}[];
+export type State = "empty" | "ready" | "broken";
+export type VegaSpec1 = {
   [k: string]: unknown;
 } | null;
 
 /**
  * A single root so json2ts emits one file with shared $defs.
+ *
+ * Every chat model the browser touches is named here. A model reachable
+ * only through a route body would be typed by hand on the other side,
+ * which is exactly the drift this file exists to prevent.
  */
 export interface ApiContract {
+  chat_action: ChatAction;
+  chat_event: ChatEventEnvelope;
+  chat_pending_plan: PendingPlanView;
+  chat_thread_view: ChatThreadView;
+  chat_transient_result: TransientResultView;
+  chat_turn_response: ChatTurnResponse;
   render: Render;
   semantic_query: SemanticQuery;
   [k: string]: unknown;
 }
+export interface AnswerAction {
+  action?: Action;
+  claims?: Claims;
+  say: Say;
+}
 /**
- * Everything a card needs to draw itself, including the honest version
- * of where the numbers came from and how old they are.
+ * One sentence containing exactly one figure, plus how to recompute it.
+ *
+ * Verification reads the operands out of the rows and redoes the
+ * arithmetic; `displayed_value` is compared, never trusted.
  */
-export interface Render {
+export interface Claim {
+  displayed_value: DisplayedValue;
+  operands: Operands;
+  operation: Operation;
+  text: Text;
+}
+/**
+ * Where a number came from: a card, a field, and the keys that pick out
+ * exactly one row. The model supplies the address, never the value.
+ */
+export interface ClaimOperand {
+  card_id: CardId;
+  field: Field;
+  keys?: Keys;
+}
+export interface Keys {
+  [k: string]: string | number | number | boolean | null;
+}
+/**
+ * A read-only query answered in the transcript. It renders with the
+ * same trust surface as a card and can be promoted into one.
+ */
+export interface RunQueryAction {
+  action?: Action1;
   chart_hint?: ChartHint;
-  chart_rows?: ChartRows;
-  chart_type?: ChartType;
-  compiled_sql?: CompiledSql;
-  data_max_ts?: DataMaxTs;
-  error?: Error;
-  error_reason?: ErrorReason;
-  fetched_at?: FetchedAt;
-  from_cache?: FromCache;
-  hint_rejected?: HintRejected;
-  restatement?: Restatement;
-  row_count?: RowCount;
-  rows?: Rows;
-  semantic_query?: SemanticQuery | null;
-  state: State;
-  vega_spec?: VegaSpec;
-  [k: string]: unknown;
+  say?: Say1;
+  semantic_query: SemanticQuery;
 }
 /**
  * One entity, N measures, up to 3 dimensions.
@@ -129,11 +739,11 @@ export interface SemanticQuery {
   order_by?: OrderBy;
 }
 export interface DimensionRef {
-  field: Field;
+  field: Field1;
   grain?: Grain;
 }
 export interface Filter {
-  field: Field1;
+  field: Field2;
   op: Op;
   value?: Value;
 }
@@ -152,5 +762,306 @@ export interface MeasureRef {
 }
 export interface OrderBy1 {
   dir?: Dir;
-  field: Field2;
+  field: Field3;
+}
+export interface ClarifyAction {
+  action?: Action2;
+  question: Question;
+}
+/**
+ * Names the wall rather than hiding it, and offers the question to the
+ * layer author. `missing_metric` and `request_text` power a copyable
+ * request without this app keeping a backlog.
+ */
+export interface RefuseAction {
+  action?: Action3;
+  missing_metric?: MissingMetric;
+  reason: Reason;
+  request_text?: RequestText;
+}
+export interface NewCardsAction {
+  action?: Action4;
+  cards: Cards;
+  say?: Say2;
+}
+/**
+ * One card to build, as a question rather than a query.
+ *
+ * Each request goes through the existing validated ask() path, so a
+ * generated card is refusable and auditable one at a time and a single bad
+ * card cannot poison a dashboard.
+ */
+export interface CardRequest {
+  chart_hint?: ChartHint1;
+  layout?: LayoutRequest | null;
+  question: Question1;
+  request_id: RequestId;
+  title: Title;
+}
+/**
+ * A proposed position. The server clamps and collision-resolves it;
+ * these bounds only stop obvious nonsense reaching that resolver.
+ */
+export interface LayoutRequest {
+  h: H;
+  w: W;
+  x: X;
+  y: Y;
+}
+/**
+ * Carries the complete replacement query, not words to re-interpret.
+ *
+ * The confirmation preview shows an exact deterministic diff, and that is
+ * only possible if the final query is already in hand: re-asking a model
+ * at confirmation time would mean confirming one thing and applying
+ * another.
+ */
+export interface EditCardAction {
+  action?: Action5;
+  card_id: CardId1;
+  chart_hint?: ChartHint2;
+  say?: Say3;
+  semantic_query: SemanticQuery;
+  title?: Title1;
+}
+export interface NewDashboardAction {
+  action?: Action6;
+  cards: Cards1;
+  say?: Say4;
+  title: Title2;
+}
+export interface LayoutAction {
+  action?: Action7;
+  changes: Changes;
+  say?: Say5;
+}
+export interface LayoutChange {
+  card_id: CardId2;
+  layout: LayoutRequest;
+}
+export interface RenameDashboardAction {
+  action?: Action8;
+  board_id: BoardId;
+  say?: Say6;
+  title: Title3;
+}
+export interface ReorderDashboardsAction {
+  action?: Action9;
+  order: Order;
+  say?: Say7;
+}
+export interface DeleteCardAction {
+  action?: Action10;
+  card_id: CardId3;
+  say?: Say8;
+}
+/**
+ * Chat deletion is soft and reversible, and the server refuses to
+ * remove the last remaining dashboard.
+ */
+export interface DeleteDashboardAction {
+  action?: Action11;
+  board_id: BoardId1;
+  say?: Say9;
+}
+/**
+ * Wraps the union so it can be validated and serialised as a model,
+ * for the same reason ChatModelResponse wraps ChatAction.
+ */
+export interface ChatEventEnvelope {
+  event: Event;
+}
+export interface PlanEvent {
+  action_id: ActionId;
+  id: Id;
+  kind?: Kind;
+  payload: PlanEventPayload;
+  version?: Version;
+}
+export interface PlanEventPayload {
+  board_id: BoardId2;
+  board_title: BoardTitle;
+  cards?: Cards2;
+}
+export interface PlanCardPreview {
+  layout: LayoutRequest;
+  question: Question2;
+  request_id: RequestId1;
+  title: Title4;
+}
+export interface ItemStartedEvent {
+  action_id: ActionId1;
+  id: Id1;
+  kind?: Kind1;
+  payload: ItemStartedEventPayload;
+  version?: Version1;
+}
+export interface ItemStartedEventPayload {
+  request_id: RequestId2;
+  title: Title5;
+}
+export interface CardEvent {
+  action_id: ActionId2;
+  id: Id2;
+  kind?: Kind2;
+  payload: CardEventPayload;
+  version?: Version2;
+}
+export interface CardEventPayload {
+  board_id: BoardId3;
+  card_id: CardId4;
+  request_id: RequestId3;
+}
+export interface ItemFailedEvent {
+  action_id: ActionId3;
+  id: Id3;
+  kind?: Kind3;
+  payload: ItemFailedEventPayload;
+  version?: Version3;
+}
+export interface ItemFailedEventPayload {
+  reason: Reason1;
+  refused?: Refused;
+  request_id: RequestId4;
+}
+export interface StoppedEvent {
+  action_id: ActionId4;
+  id: Id4;
+  kind?: Kind4;
+  payload: StoppedEventPayload;
+  version?: Version4;
+}
+export interface StoppedEventPayload {
+  completed?: Completed;
+  remaining?: Remaining;
+}
+export interface DoneEvent {
+  action_id: ActionId5;
+  id: Id5;
+  kind?: Kind5;
+  payload: DoneEventPayload;
+  version?: Version5;
+}
+export interface DoneEventPayload {
+  completed?: Completed1;
+  failed?: Failed;
+}
+/**
+ * A frozen plan awaiting confirmation.
+ *
+ * Confirmation never calls the planning model again, so what is shown here
+ * is exactly what will be applied.
+ */
+export interface PendingPlanView {
+  action: Action12;
+  cards?: Cards3;
+  created_at: CreatedAt;
+  id: Id6;
+  operations?: Operations;
+  say?: Say10;
+  stale?: Stale;
+  target_board_id?: TargetBoardId;
+  target_board_title?: TargetBoardTitle;
+}
+/**
+ * One line of an exact preview: what will change, stated in words the
+ * reader can check against the board in front of them.
+ */
+export interface PlanOperation {
+  after?: After;
+  before?: Before;
+  board_id?: BoardId4;
+  board_title?: BoardTitle1;
+  card_id?: CardId5;
+  card_title?: CardTitle;
+  kind: Kind6;
+  summary: Summary;
+}
+export interface ChatThreadView {
+  active_actions?: ActiveActions;
+  id: Id8;
+  messages?: Messages;
+  pending_plan?: PendingPlanView | null;
+}
+export interface ActionProgressView {
+  action: Action13;
+  board_id?: BoardId5;
+  completed?: Completed2;
+  failed?: Failed1;
+  id: Id7;
+  status: Status;
+  total?: Total;
+}
+export interface ChatMessageOut {
+  action: Action14;
+  active_board_id?: ActiveBoardId;
+  active_board_title?: ActiveBoardTitle;
+  claims?: Claims1;
+  clarify?: Clarify;
+  created_at: CreatedAt1;
+  data_exposed?: DataExposed;
+  id: Id9;
+  missing_metric?: MissingMetric1;
+  refusal?: Refusal;
+  request_text?: RequestText1;
+  role: Role;
+  say?: Say11;
+}
+export interface VerifiedClaimView {
+  displayed_value: DisplayedValue1;
+  sources?: Sources;
+  text: Text1;
+}
+/**
+ * A clickable chip back to the card a figure came from.
+ */
+export interface SourceRef {
+  board_id: BoardId6;
+  card_id: CardId6;
+  card_title: CardTitle1;
+}
+/**
+ * A read-only chat query, with the same trust surface a card carries.
+ */
+export interface TransientResultView {
+  chart_hint?: ChartHint3;
+  compiled_sql?: CompiledSql;
+  data_max_ts?: DataMaxTs;
+  expired?: Expired;
+  expires_at?: ExpiresAt;
+  fetched_at?: FetchedAt;
+  id: Id10;
+  restatement: Restatement;
+  row_count?: RowCount;
+  rows?: Rows;
+  semantic_query: SemanticQuery;
+  vega_spec?: VegaSpec;
+}
+export interface ChatTurnResponse {
+  message: ChatMessageOut;
+  pending_plan?: PendingPlanView | null;
+  transient_result?: TransientResultView | null;
+}
+/**
+ * Everything a card needs to draw itself, including the honest version
+ * of where the numbers came from and how old they are.
+ */
+export interface Render {
+  chart_hint?: ChartHint4;
+  chart_rows?: ChartRows;
+  chart_type?: ChartType;
+  compiled_sql?: CompiledSql1;
+  data_max_ts?: DataMaxTs1;
+  error?: Error;
+  error_reason?: ErrorReason;
+  fetched_at?: FetchedAt1;
+  from_cache?: FromCache;
+  hint_rejected?: HintRejected;
+  restatement?: Restatement1;
+  row_count?: RowCount1;
+  rows?: Rows1;
+  semantic_query?: SemanticQuery | null;
+  state: State;
+  vega_spec?: VegaSpec1;
+  [k: string]: unknown;
 }

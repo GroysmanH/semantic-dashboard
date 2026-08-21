@@ -158,6 +158,8 @@ def test_ask_persists_an_unplottable_refinement_and_prompt(client, card):
     from app.llm.query_step import AskOutcome
 
     refine(client, card["id"], BY_MONTH)
+    board_id = store.get_card(card["id"])["board_id"]
+    before_revision = store.get_board(board_id)["revision"]
     query = {"entity": "production", "measures": ["oil"],
              "dimensions": [{"field": "region"}]}
     outcome = AskOutcome(
@@ -174,6 +176,7 @@ def test_ask_persists_an_unplottable_refinement_and_prompt(client, card):
     assert saved["semantic_query"]["dimensions"] == [{"field": "region", "grain": None}]
     assert saved["prompt"] == "break this down by region"
     assert saved["state"] == "broken"
+    assert store.get_board(board_id)["revision"] == before_revision + 1
 
 
 def test_card_reload_caches_a_fresh_unplottable_result(client, card):

@@ -32,6 +32,10 @@ class LastVisibleBoardError(RuntimeError):
     """Raised when a deletion would leave the application with no board."""
 
 
+class BoardOrderError(RuntimeError):
+    """Raised when a reorder is not the exact set of visible boards."""
+
+
 @contextmanager
 def _connection(conn=None) -> Iterator[Any]:
     if conn is not None:
@@ -117,7 +121,17 @@ def update_board(
 
 
 def reorder_boards(order: list[uuid.UUID], *, conn=None) -> None:
-    with _connection(conn) as active, active.cursor() as cur:
+    with _connection(conn) as active, active.cursor(row_factory=dict_row) as cur:
+        cur.execute("LOCK TABLE app.board IN SHARE ROW EXCLUSIVE MODE")
+        cur.execute(
+            "SELECT id FROM app.board WHERE deleted_at IS NULL "
+            "ORDER BY position, created_at FOR UPDATE"
+        )
+        visible = [row["id"] for row in cur.fetchall()]
+        if len(order) != len(set(order)) or set(order) != set(visible):
+            raise BoardOrderError(
+                "order must contain every visible board exactly once"
+            )
         for position, board_id in enumerate(order):
             cur.execute(
                 "UPDATE app.board SET position = %s, revision = revision + 1, "
@@ -211,16 +225,24 @@ def next_slot(board_id: uuid.UUID, *, conn=None) -> dict[str, int]:
 
 def create_card(
     board_id: uuid.UUID, layout: dict | None = None, *, conn=None
-) -> dict[str, Any]:
-    with _connection(conn) as active:
+) -> dict[str, Any] | None:
+    with _connection(conn) as active, active.cursor() as cur:
+        # A row lock serializes slot calculation for one board while leaving
+        # card creation on other boards independent.
+        cur.execute(
+            "SELECT id FROM app.board "
+            "WHERE id = %s AND deleted_at IS NULL FOR UPDATE",
+            (board_id,),
+        )
+        if cur.fetchone() is None:
+            return None
         card = _q(
             f"INSERT INTO app.card (id, board_id, layout) "
-            f"SELECT %s, id, %s FROM app.board "
-            f"WHERE id = %s AND deleted_at IS NULL RETURNING {CARD_COLUMNS}",
+            f"VALUES (%s, %s, %s) RETURNING {CARD_COLUMNS}",
             (
                 uuid.uuid4(),
-                json.dumps(layout or next_slot(board_id, conn=active)),
                 board_id,
+                json.dumps(layout or next_slot(board_id, conn=active)),
             ),
             fetch="one",
             conn=active,

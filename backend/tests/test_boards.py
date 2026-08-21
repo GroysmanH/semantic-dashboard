@@ -33,6 +33,12 @@ def ids(boards):
     return [b["id"] for b in boards]
 
 
+def raw_revision(board_id):
+    with app_pool.connection() as conn, conn.cursor() as cur:
+        cur.execute("SELECT revision FROM app.board WHERE id = %s", (board_id,))
+        return cur.fetchone()[0]
+
+
 @contextmanager
 def only_visible(board_id):
     """Temporarily isolate the last-board invariant without depending on
@@ -75,7 +81,11 @@ def test_a_new_board_gets_a_position_past_every_existing_one(client):
 def test_listing_is_ordered_by_position_not_creation(client):
     a = make_board(client, "a")
     b = make_board(client, "b")
-    client.post("/boards/reorder", json={"order": [b["id"], a["id"]]})
+    order = ids(client.get("/boards").json())
+    order.remove(a["id"])
+    order.remove(b["id"])
+    order.extend((b["id"], a["id"]))
+    client.post("/boards/reorder", json={"order": order})
     listed = ids(client.get("/boards").json())
     assert listed.index(b["id"]) < listed.index(a["id"])
 
@@ -83,7 +93,28 @@ def test_listing_is_ordered_by_position_not_creation(client):
 def test_reorder_is_not_captured_as_a_board_id(client):
     # /boards/reorder must not be parsed as /boards/{board_id}; if the route
     # order is wrong this 422s on uuid parsing instead of reordering.
-    assert client.post("/boards/reorder", json={"order": []}).status_code == 204
+    order = ids(client.get("/boards").json())
+    assert client.post("/boards/reorder", json={"order": order}).status_code == 204
+
+
+@pytest.mark.parametrize("invalid", ["duplicate", "omission", "unknown"])
+def test_reorder_requires_an_exact_visible_board_permutation(client, invalid):
+    make_board(client, "order a")
+    make_board(client, "order b")
+    order = ids(client.get("/boards").json())
+    before = store.board_basis(uuid.UUID(board_id) for board_id in order)
+
+    if invalid == "duplicate":
+        proposed = [*order, order[0]]
+    elif invalid == "omission":
+        proposed = order[:-1]
+    else:
+        proposed = [*order[:-1], str(uuid.uuid4())]
+
+    response = client.post("/boards/reorder", json={"order": proposed})
+
+    assert response.status_code == 409
+    assert store.board_basis(uuid.UUID(board_id) for board_id in order) == before
 
 
 # -- renaming ------------------------------------------------------------
@@ -166,18 +197,33 @@ def test_soft_deleted_cards_and_boards_are_hidden_until_restored(client):
     make_board(client, "visible survivor")
     board = make_board(client, "recoverable")
     card = client.post(f"/boards/{board['id']}/cards").json()
+    board_id = uuid.UUID(board["id"])
+    card_id = uuid.UUID(card["id"])
+    before_card_delete = store.get_board(board_id)["revision"]
 
-    deleted_card = store.soft_delete_card(uuid.UUID(card["id"]))
+    deleted_card = store.soft_delete_card(card_id)
     assert deleted_card["deleted_at"] is not None
+    after_card_delete = store.get_board(board_id)["revision"]
+    assert after_card_delete > before_card_delete
     assert client.get(f"/cards/{card['id']}").status_code == 404
-    store.restore_card(uuid.UUID(card["id"]))
+    store.restore_card(card_id)
+    after_card_restore = store.get_board(board_id)["revision"]
+    assert after_card_restore > after_card_delete
     assert client.get(f"/cards/{card['id']}").status_code == 200
 
-    store.soft_delete_board(uuid.UUID(board["id"]))
+    before_board_delete = store.get_board(board_id)["revision"]
+    store.soft_delete_board(board_id)
+    after_board_delete = raw_revision(board_id)
+    assert after_board_delete > before_board_delete
     assert board["id"] not in ids(client.get("/boards").json())
+    assert store.board_basis([board_id, uuid.uuid4()]) == {}
     assert client.get(f"/boards/{board['id']}").status_code == 404
     assert client.get(f"/cards/{card['id']}").status_code == 404
-    store.restore_board(uuid.UUID(board["id"]))
+    restored = store.restore_board(board_id)
+    assert restored["revision"] > after_board_delete
+    assert store.board_basis([board_id, uuid.uuid4()]) == {
+        board["id"]: restored["revision"],
+    }
     assert client.get(f"/boards/{board['id']}").status_code == 200
     assert client.get(f"/cards/{card['id']}").status_code == 200
 
@@ -227,13 +273,32 @@ def test_revisions_track_substantive_changes_but_not_render_cache(client):
 def test_reorder_increments_every_affected_board_revision(client):
     a = make_board(client, "revision a")
     b = make_board(client, "revision b")
-    before = store.board_basis([uuid.UUID(a["id"]), uuid.UUID(b["id"])])
+    order = ids(client.get("/boards").json())
+    before = store.board_basis(uuid.UUID(board_id) for board_id in order)
+    order.remove(a["id"])
+    order.remove(b["id"])
+    order.extend((b["id"], a["id"]))
 
-    client.post("/boards/reorder", json={"order": [b["id"], a["id"]]})
+    client.post("/boards/reorder", json={"order": order})
 
     after = store.board_basis([uuid.UUID(a["id"]), uuid.UUID(b["id"])])
     assert after[a["id"]] > before[a["id"]]
     assert after[b["id"]] > before[b["id"]]
+
+
+def test_two_cards_created_for_one_board_receive_distinct_slots(client):
+    board = make_board(client, "serialized slots")
+    first = client.post(f"/boards/{board['id']}/cards").json()
+    second = client.post(f"/boards/{board['id']}/cards").json()
+
+    assert (first["layout"]["x"], first["layout"]["y"]) != (
+        second["layout"]["x"], second["layout"]["y"],
+    )
+
+
+def test_creating_a_card_for_an_unknown_board_is_404(client):
+    response = client.post(f"/boards/{uuid.uuid4()}/cards")
+    assert response.status_code == 404
 
 
 def test_hard_card_delete_changes_membership_revision(client):

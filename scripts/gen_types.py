@@ -17,6 +17,14 @@ sys.path.insert(0, "/app")
 
 from pydantic import BaseModel  # noqa: E402
 
+from app.chat.schema import (  # noqa: E402
+    ChatAction,
+    ChatEventEnvelope,
+    ChatThreadView,
+    ChatTurnResponse,
+    PendingPlanView,
+    TransientResultView,
+)
 from app.render import Render  # noqa: E402
 from app.semantic.query import SemanticQuery  # noqa: E402
 
@@ -24,10 +32,21 @@ OUT = Path("/frontend/src/api/schema.json")
 
 
 class ApiContract(BaseModel):
-    """A single root so json2ts emits one file with shared $defs."""
+    """A single root so json2ts emits one file with shared $defs.
+
+    Every chat model the browser touches is named here. A model reachable
+    only through a route body would be typed by hand on the other side,
+    which is exactly the drift this file exists to prevent.
+    """
 
     semantic_query: SemanticQuery
     render: Render
+    chat_action: ChatAction
+    chat_turn_response: ChatTurnResponse
+    chat_thread_view: ChatThreadView
+    chat_pending_plan: PendingPlanView
+    chat_transient_result: TransientResultView
+    chat_event: ChatEventEnvelope
 
 
 def main() -> None:
