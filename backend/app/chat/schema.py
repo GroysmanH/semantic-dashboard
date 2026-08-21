@@ -240,6 +240,54 @@ class DeleteDashboardAction(StrictModel):
     board_id: UUID
 
 
+TaskKind = Literal[
+    "run_query", "new_cards", "new_dashboard", "edit_card", "layout",
+    "rename_dashboard", "reorder_dashboards", "delete_card",
+    "delete_dashboard",
+]
+
+
+# The long docstring this class deserves lives here, as a comment, because
+# Pydantic turns a docstring into a schema `description` and the grammar
+# below has no room to spare.
+#
+# Anything that is not a plain answer is asked for in two calls, and this is
+# the first. The reason is a measured ceiling: Anthropic compiles a
+# structured-output schema into a grammar and rejects it past roughly 8.4KB
+# of JSON Schema. Four read-only variants come to 8293B and compile; the
+# same four plus one three-field variant come to 8568B and do not. The
+# twelve-variant contract below is not close.
+#
+# So the router carries no query, no card list and no layout -- only which
+# kind of thing to do next -- and the details are asked for afterwards
+# against a single-variant schema, or resolved without a schema at all.
+#
+# The split earns more than a fit. `run_query` and `edit_card` are now
+# resolved through query_step.ask(), which already has the query prompt, the
+# synonym guard, layer validation and a retry. The chat model therefore
+# never writes a semantic query: it says which question to ask, and the
+# path that has always written queries writes this one too.
+class TaskAction(StrictModel):
+    action: Literal["task"] = "task"
+    say: str = Field(min_length=1, max_length=2000)
+    kind: TaskKind
+
+
+class EditCardIntent(StrictModel):
+    """Which card, and what to change about it, in words.
+
+    Deliberately not a query. The replacement query is produced by
+    query_step.ask() with the card's current query as context -- the same
+    call the card's own edit box makes -- and frozen into the plan before
+    anyone is asked to confirm it. So the preview still shows an exact
+    diff, and there is still only one place in this application that turns
+    English into a semantic query.
+    """
+
+    card_id: UUID
+    instruction: str = Field(min_length=1, max_length=500)
+
+
 ChatAction = Annotated[
     AnswerAction | RunQueryAction | ClarifyAction | RefuseAction
     | NewCardsAction | EditCardAction | NewDashboardAction | LayoutAction
@@ -248,46 +296,54 @@ ChatAction = Annotated[
     Field(discriminator="action"),
 ]
 
+# Which schema the second call is made against, per kind. Each is a single
+# model rather than a union, so every one of them compiles with room to
+# spare -- the largest is under 2.1KB against a ceiling near 8.4KB.
+#
+# `run_query` is absent on purpose: it needs no second structured call. The
+# person already stated the question, and query_step.ask() turns a question
+# into a validated query better than this grammar could.
+DETAIL_SCHEMAS: dict[str, type[StrictModel]] = {
+    "new_cards": NewCardsAction,
+    "new_dashboard": NewDashboardAction,
+    "edit_card": EditCardIntent,
+    "layout": LayoutAction,
+    "rename_dashboard": RenameDashboardAction,
+    "reorder_dashboards": ReorderDashboardsAction,
+    "delete_card": DeleteCardAction,
+    "delete_dashboard": DeleteDashboardAction,
+}
+
 
 class ChatModelResponse(StrictModel):
     """The complete action contract.
 
     This is the type the API and the generated TypeScript speak, and what a
     resolved plan is validated against. It is deliberately *not* what gets
-    sent to a provider: see ChatReadOnlyResponse.
+    sent to a provider: see ChatRouterResponse.
     """
 
     turn: ChatAction
 
 
-# Read-only actions only. This is what providers are actually asked for
-# while the chat cannot mutate anything.
-#
-# The full twelve-variant union cannot be used as a structured-output
-# schema: Anthropic rejects it with "the compiled grammar is too large",
-# and Gemini with a bare 400. Measured on claude-haiku-4-5, these four
-# variants compile at ~7.2KB while ten variants carrying no SemanticQuery
-# already fail at ~9KB, so the ceiling is the size of the compiled grammar
-# rather than the number of branches.
-#
-# Asking with the narrow schema is also the stronger design. A model that
-# cannot express a mutation cannot propose one it is not allowed to apply,
-# which beats letting it propose one and refusing afterwards.
-ReadOnlyAction = Annotated[
-    AnswerAction | RunQueryAction | ClarifyAction | RefuseAction,
+# Four variants again, and this time `run_query` is not one of them: the
+# router says "task, kind=run_query" and the query is written afterwards.
+# That is what buys the headroom the fifth variant needs.
+RouterAction = Annotated[
+    AnswerAction | ClarifyAction | RefuseAction | TaskAction,
     Field(discriminator="action"),
 ]
 
 
-class ChatReadOnlyResponse(StrictModel):
-    """What providers are asked for.
+class ChatRouterResponse(StrictModel):
+    """What providers are asked for on the first call of every turn.
 
     LLMClient.ask takes `type[T] where T: BaseModel`, and an Annotated union
     alias is not a model. Wrapping it keeps one contract across all four
     providers instead of forking the seam.
     """
 
-    turn: ReadOnlyAction
+    turn: RouterAction
 
 
 # -- transport envelopes -------------------------------------------------
@@ -399,6 +455,19 @@ class ActionProgressView(StrictModel):
     total: int = 0
     completed: int = 0
     failed: int = 0
+
+
+class PlanConfirmedView(StrictModel):
+    """What a confirmation returns.
+
+    `action` is present only when cards still have to be built, and its
+    absence is how the browser knows the change is already complete rather
+    than something to keep watching.
+    """
+
+    message: ChatMessageOut
+    board_id: UUID | None = None
+    action: ActionProgressView | None = None
 
 
 class ChatTurnResponse(StrictModel):

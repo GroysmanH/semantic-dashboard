@@ -181,48 +181,90 @@ def test_card_requests_bound_free_text():
 
 # -- what actually compiles as a provider grammar ------------------------
 
-def test_the_read_only_union_is_what_providers_are_asked_for():
+def test_the_router_union_is_what_providers_are_asked_for():
     """The full twelve-variant union is rejected by Anthropic with "the
-    compiled grammar is too large" and by Gemini with a bare 400. Measured
-    on claude-haiku-4-5: these four variants compile, ten variants carrying
-    no SemanticQuery already do not."""
-    from app.chat.schema import ChatReadOnlyResponse
+    compiled grammar is too large". So is any five-variant union that keeps
+    run_query: measured on claude-haiku-4-5, four read-only variants come
+    to 8293B and compile, and the same four plus one three-field variant
+    come to 8568B and do not. The router therefore drops run_query into a
+    task kind and comes to 4937B."""
+    from app.chat.schema import ChatRouterResponse
 
-    for action in ["answer", "run_query", "clarify", "refuse"]:
+    for action in ["answer", "clarify", "refuse"]:
         payload = dict(VALID[[v["action"] for v in VALID].index(action)])
-        assert ChatReadOnlyResponse(turn=payload).turn.action == action
+        assert ChatRouterResponse(turn=payload).turn.action == action
+
+    task = {"action": "task", "say": "I will add a card.", "kind": "new_cards"}
+    assert ChatRouterResponse(turn=task).turn.kind == "new_cards"
 
 
 @pytest.mark.parametrize("payload", [v for v in VALID if v["action"] not in
-                                     {"answer", "run_query", "clarify",
-                                      "refuse"}],
+                                     {"answer", "clarify", "refuse"}],
                          ids=lambda p: p["action"])
-def test_a_mutation_cannot_be_expressed_in_the_read_only_schema(payload):
-    from app.chat.schema import ChatReadOnlyResponse
+def test_no_effect_can_be_expressed_in_the_router_schema(payload):
+    """The router says which kind of thing to do and nothing else.
+
+    This is the property that makes the split worth having rather than
+    merely necessary: a reply that cannot name a card, a board or a query
+    cannot arrive already half-applied.
+    """
+    from app.chat.schema import ChatRouterResponse
 
     with pytest.raises(ValidationError):
-        ChatReadOnlyResponse(turn=payload)
+        ChatRouterResponse(turn=payload)
 
 
-def test_the_read_only_schema_stays_a_narrow_union():
+def test_a_task_carries_no_payload():
+    from app.chat.schema import TaskAction
+
+    with pytest.raises(ValidationError):
+        TaskAction(say="I will remove it.", kind="delete_card",
+                   card_id="00000000-0000-0000-0000-000000000000")
+
+
+def test_every_task_kind_has_a_way_to_be_detailed():
+    """A kind the router can choose but the second stage cannot ask about
+    would route a request into a dead end."""
+    from app.chat.schema import DETAIL_SCHEMAS, TaskKind
+    from typing import get_args
+
+    kinds = set(get_args(TaskKind))
+    # run_query is resolved by query_step.ask(), which needs no schema.
+    assert set(DETAIL_SCHEMAS) | {"run_query"} == kinds
+
+
+def test_the_router_schema_stays_a_narrow_union():
     """A canary, not a proof.
 
-    Measured against claude-haiku-4-5: four variants compiled at 7.2KB and
-    again at 8.1KB once field descriptions were added, while ten variants
-    carrying no SemanticQuery failed at 9.0KB. So size alone does not
-    decide it — the number of branches dominates, and descriptions appear
-    to cost nothing. This asserts the branch count, which is the variable
-    that actually moved, and flags size only as something to re-test live.
+    Measured against claude-haiku-4-5, live: four router variants compile
+    at 4937B; the same four with run_query restored come to 8568B and are
+    rejected, while the four read-only variants that preceded them compiled
+    at 8293B. So the ceiling sits between those two numbers and neither
+    branch count nor byte count alone predicts it. This asserts the branch
+    count, which is the variable that actually moved, and flags size only
+    as something to re-test live.
     """
     import json
 
-    from app.chat.schema import ChatReadOnlyResponse
+    from app.chat.schema import ChatRouterResponse
 
-    schema = ChatReadOnlyResponse.model_json_schema()
+    schema = ChatRouterResponse.model_json_schema()
     branches = schema["properties"]["turn"]["oneOf"]
     assert len(branches) == 4, (
         "the provider-facing union grew a branch; re-run a live call before "
         "trusting it, because the grammar ceiling is not a byte count")
 
     size = len(json.dumps(schema))
-    assert size < 12_000, f"schema grew to {size} bytes; re-test the providers"
+    assert size < 8_000, f"schema grew to {size} bytes; re-test the providers"
+
+
+@pytest.mark.parametrize("kind,model",
+                         list(__import__("app.chat.schema", fromlist=["x"])
+                              .DETAIL_SCHEMAS.items()))
+def test_each_detail_schema_is_small_enough_to_compile(kind, model):
+    """Each is a single model rather than a union, which is what buys the
+    room. The largest is under a quarter of the ceiling."""
+    import json
+
+    size = len(json.dumps(model.model_json_schema()))
+    assert size < 3_000, f"{kind} grew to {size} bytes; re-test the providers"

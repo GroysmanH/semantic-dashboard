@@ -38,8 +38,9 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     google_api_key: str = ""
     openai_api_key: str = ""
-    # NVIDIA NIM hosts DeepSeek behind the OpenAI wire protocol, so the key
-    # is NVIDIA's (nvapi-...) even though the model is DeepSeek's.
+    # NVIDIA NIM hosts a catalogue of open-weight models behind the OpenAI
+    # wire protocol, so the key is NVIDIA's (nvapi-...) whatever the model
+    # underneath is called.
     nvidia_api_key: str = ""
 
     # Which API answers a question by default. Both sides are held to the
@@ -62,11 +63,18 @@ class Settings(BaseSettings):
     gemini_model_strong: str = "gemini-3.6-flash"
     openai_model: str = "gpt-5-mini"
     openai_model_strong: str = "gpt-5"
-    # One model serves both tiers here, because the key only reaches one.
-    # `hard` therefore costs nothing and changes nothing on this provider --
-    # said plainly rather than papered over with a second id that 404s.
-    nvidia_model: str = "deepseek-ai/deepseek-v4-flash-0731"
-    nvidia_model_strong: str = "deepseek-ai/deepseek-v4-flash-0731"
+    # Was DeepSeek on both tiers. NVIDIA has stopped serving
+    # `deepseek-ai/deepseek-v4-flash-0731`: the endpoint accepts the request
+    # and then never answers -- a twenty-token completion times out at 272s
+    # while llama on the same key and the same key's `/models` listing both
+    # answer in under a second. A model id that is listed but not served is
+    # worse than one that 404s, because nothing on the wire says so.
+    #
+    # These two are what a probe of the catalogue actually answered with,
+    # and unlike every other provider here the two tiers really do differ,
+    # so `hard` buys something. `make models` re-checks both against a key.
+    nvidia_model: str = "minimaxai/minimax-m3"
+    nvidia_model_strong: str = "moonshotai/kimi-k3"
 
     # This was gemini, on the reasoning that a 360-call sweep should not
     # bill. It does not survive contact with the actual quota: Google AI

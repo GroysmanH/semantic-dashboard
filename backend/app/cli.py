@@ -69,10 +69,13 @@ def models(providers: list[str]) -> int:
         except Exception as exc:                    # noqa: BLE001
             print(f"   could not list models: {exc}")
             continue
-        # NVIDIA lists hundreds of hosted models; only the family in play
-        # is useful to read.
+        # NVIDIA lists a hundred hosted models and most are embeddings,
+        # vision or safety heads. Only the two configured tiers and their
+        # families are useful to read here.
         if provider == "nvidia":
-            available = [m for m in available if "deepseek" in m.lower()] or available
+            families = {cheap.split("/")[0], strong.split("/")[0]}
+            available = [m for m in available
+                         if m.split("/")[0] in families] or available
         for m in available:
             mark = (" <- default" if _same(m, cheap)
                     else " <- hard" if _same(m, strong) else "")

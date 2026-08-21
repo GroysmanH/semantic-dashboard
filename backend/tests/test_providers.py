@@ -84,10 +84,8 @@ def test_the_factory_returns_the_right_client(provider, cls):
     ("gemini", True, "gemini-3.6-flash"),
     ("openai", False, "gpt-5-mini"),
     ("openai", True, "gpt-5"),
-    ("nvidia", False, "deepseek-ai/deepseek-v4-flash-0731"),
-    # Same id both ways on purpose: the key reaches one model, so this
-    # provider has no escalation to offer and does not invent one.
-    ("nvidia", True, "deepseek-ai/deepseek-v4-flash-0731"),
+    ("nvidia", False, "minimaxai/minimax-m3"),
+    ("nvidia", True, "moonshotai/kimi-k3"),
 ])
 def test_hard_escalates_within_the_chosen_provider(provider, hard, expected):
     """Switching provider must not re-price what `hard` means: each side

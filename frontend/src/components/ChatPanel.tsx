@@ -1,12 +1,24 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { BoardSummary, Provider } from "../api/client";
-import type { ChatMessageOut, TransientResultView } from "../api/types.gen";
+import type {
+  ActionProgressView,
+  ChatMessageOut,
+  PendingPlanView,
+  TransientResultView,
+} from "../api/types.gen";
 import { chatApi } from "../api/chat";
 import { MAX_WIDTH, MIN_WIDTH } from "../state/preferences";
 import AskBar from "./AskBar";
 import ChatMessage from "./ChatMessage";
+import ChatPlan from "./ChatPlan";
+import ChatProgress from "./ChatProgress";
 import ChatResult from "./ChatResult";
 import ProviderPicker, { PROVIDER_LABEL } from "./ProviderPicker";
+
+// How often a running generation is asked where it got to. Cards are built
+// one model call at a time, so anything faster is asking a question whose
+// answer cannot have changed.
+const POLL_MS = 1200;
 
 export interface ProviderCapability {
   default_model: string;
@@ -42,6 +54,7 @@ export default function ChatPanel({
   onConsentChange,
   onThreadChange,
   onNavigate,
+  onApplied,
 }: {
   threadId: string | null;
   open: boolean;
@@ -63,6 +76,9 @@ export default function ChatPanel({
   onConsentChange: (v: boolean) => void;
   onThreadChange: (id: string) => void;
   onNavigate: (boardId: string, cardId?: string) => void;
+  /** A change landed. The tab bar and the grid are both stale now, and
+   *  only the app above knows how to reload them. */
+  onApplied: (boardId: string | null) => void | Promise<void>;
 }) {
   const [messages, setMessages] = useState<ChatMessageOut[]>([]);
   const [results, setResults] = useState<Record<string, TransientResultView>>({});
@@ -70,6 +86,8 @@ export default function ChatPanel({
   const [hard, setHard] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [plan, setPlan] = useState<PendingPlanView | null>(null);
+  const [action, setAction] = useState<ActionProgressView | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
 
   const strong = capabilities[provider]?.strong_available ?? false;
@@ -80,6 +98,10 @@ export default function ChatPanel({
       try {
         const thread = await chatApi.getThread(threadId);
         setMessages(thread.messages ?? []);
+        // A plan and a running build both outlive this tab. Someone who
+        // reloads mid-decision finds the same thing waiting.
+        setPlan(thread.pending_plan ?? null);
+        setAction((thread.active_actions ?? [])[0] ?? null);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
@@ -108,6 +130,7 @@ export default function ChatPanel({
       });
       const thread = await chatApi.getThread(threadId);
       setMessages(thread.messages ?? []);
+      setPlan(response.pending_plan ?? null);
       if (response.transient_result) {
         setResults((prev) => ({
           ...prev,
@@ -134,6 +157,8 @@ export default function ChatPanel({
       onThreadChange(fresh.id);
       setMessages([]);
       setResults({});
+      setPlan(null);
+      setAction(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -150,6 +175,86 @@ export default function ChatPanel({
       setBusy(false);
     }
   };
+
+  const refresh = useCallback(async () => {
+    if (!threadId) return;
+    const thread = await chatApi.getThread(threadId);
+    setMessages(thread.messages ?? []);
+    setPlan(thread.pending_plan ?? null);
+  }, [threadId]);
+
+  const confirm = async () => {
+    if (!plan || !threadId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const applied = await chatApi.confirmPlan(plan.id, { provider, hard });
+      setPlan(null);
+      setAction(applied.action ?? null);
+      await refresh();
+      // Before the cards finish building, not after: the empty ones are
+      // already on the board and hiding them until the end would make a
+      // dashboard appear all at once, which is the thing being avoided.
+      await onApplied(applied.board_id ?? null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      // The plan may have gone stale rather than failed, and the reason is
+      // on the server. Re-read it instead of guessing.
+      await refresh().catch(() => undefined);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const discard = async () => {
+    if (!plan) return;
+    setBusy(true);
+    try {
+      await chatApi.cancelPlan(plan.id);
+      setPlan(null);
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const stop = async () => {
+    if (!action) return;
+    try {
+      setAction(await chatApi.stopAction(action.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  // Follow a running build. A poll rather than a stream: the same events,
+  // and a reconnect is just the next request.
+  useEffect(() => {
+    if (!action) return;
+    if (action.status !== "pending" && action.status !== "running") return;
+
+    let live = true;
+    const timer = window.setInterval(async () => {
+      try {
+        const next = await chatApi.actionProgress(action.id);
+        if (!live) return;
+        setAction(next);
+        // Reload the board on every step, so each card appears as it is
+        // finished rather than all of them at the end.
+        await onApplied(next.board_id ?? null);
+      } catch {
+        // A progress read that fails is not worth interrupting anyone
+        // over; the next tick tries again.
+      }
+    }, POLL_MS);
+
+    return () => {
+      live = false;
+      window.clearInterval(timer);
+    };
+  }, [action, onApplied]);
 
   // Dragging the edge. Width is a preference, never part of a board's
   // saved layout: pinning must not move anybody's cards.
@@ -225,6 +330,17 @@ export default function ChatPanel({
             )}
           </div>
         ))}
+        {plan && (
+          <ChatPlan
+            plan={plan}
+            busy={busy}
+            onConfirm={() => void confirm()}
+            onCancel={() => void discard()}
+          />
+        )}
+        {action && (
+          <ChatProgress action={action} onStop={() => void stop()} />
+        )}
         {error && <li className="chat-turn"><p className="notice broken">{error}</p></li>}
       </ul>
 

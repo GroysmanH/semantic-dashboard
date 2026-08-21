@@ -1,12 +1,14 @@
 import type { Provider } from "../api/client";
 
-/** Named by the model, not the vendor: "DeepSeek" is what someone asked
- *  for, even though the key and the hosting are NVIDIA's. */
+/** Three are named by the model because that is what people call them.
+ *  The fourth is named by its host: NVIDIA serves a catalogue of open
+ *  models and which one answers is a setting, so a model name here would
+ *  go stale the first time that setting changed. */
 export const PROVIDER_LABEL: Record<Provider, string> = {
   anthropic: "Claude",
   gemini: "Gemini",
   openai: "GPT",
-  nvidia: "DeepSeek",
+  nvidia: "NVIDIA (free)",
 };
 
 /** One control, used by the chat composer and by a blank card.

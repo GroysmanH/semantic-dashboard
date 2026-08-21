@@ -1,7 +1,13 @@
-"""Read-only chat routes.
+"""Chat routes.
 
 The whole surface is behind a server flag. When chat is off these are 404,
 not 403: an endpoint that says "forbidden" tells you the feature exists.
+
+A change the chat proposes is never applied by the turn that proposed it.
+The turn writes a pending plan; a second, explicit request from the browser
+confirms it. So the button the person presses is the only thing in the
+system that authorises a change, and it authorises exactly the document
+they were shown.
 
 The browser sends a consent flag, and it is only ever the second of two
 gates. `share_rows = settings.chat_sees_data and body.share_visible_data`
@@ -13,19 +19,24 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
+from ..chat import confirm as confirm_plan
+from ..chat.plan import PlanRefused
 from ..chat.schema import (
+    ActionProgressView,
+    ChatEventEnvelope,
     ChatMessageOut,
     ChatThreadView,
     ChatTurnResponse,
+    PlanConfirmedView,
     TransientResultView,
 )
-from ..chat.turn import TurnRequest, _message_out, run_turn
+from ..chat.turn import TurnRequest, _message_out, plan_view, run_turn
 from ..config import Provider, settings
 from ..deps import LAYER
-from ..llm.client import LLMRateLimited, make_client
+from ..llm.client import LLMError, LLMRateLimited, make_client
 from ..render import render
 from ..store import cards as store
 from ..store import chat as chat_store
@@ -55,6 +66,49 @@ class TurnIn(BaseModel):
     selected_card_id: uuid.UUID | None = None
 
 
+class ConfirmIn(BaseModel):
+    """Which account pays for the cards this plan still has to build.
+
+    Asked again at confirmation rather than remembered from the turn: the
+    plan may have been sitting there while the person changed the setting,
+    and the one they can see is the one that should apply.
+    """
+
+    provider: Provider | None = None
+    hard: bool = False
+
+
+def _progress(action: dict) -> ActionProgressView:
+    items = chat_store.list_action_items(action["id"])
+    return ActionProgressView(
+        id=action["id"], action="new_cards", status=_status(action["status"]),
+        board_id=action["board_id"], total=len(items),
+        completed=sum(1 for i in items if i["status"] == "succeeded"),
+        failed=sum(1 for i in items if i["status"] == "failed"),
+    )
+
+
+def _status(stored: str) -> str:
+    """Storage keeps eight states; the browser needs six.
+
+    `completed_with_errors` is not a different thing to wait for -- the
+    per-card failures are already on the cards -- and `cancelled` and
+    `undone` both mean the same to someone watching a progress line.
+    """
+    return {
+        "queued": "pending",
+        "completed_with_errors": "done",
+        "completed": "done",
+        "cancelled": "stopped",
+        "undone": "stopped",
+    }.get(stored, stored)
+
+
+def _action_or_404(action_id: uuid.UUID) -> dict:
+    action = chat_store.get_action(action_id)
+    if action is None:
+        raise HTTPException(404, "no such action")
+    return action
 
 
 def _thread_or_404(thread_id: uuid.UUID) -> dict:
@@ -73,11 +127,19 @@ def create_thread():
 def get_thread(thread_id: uuid.UUID) -> ChatThreadView:
     thread = _thread_or_404(thread_id)
     messages = chat_store.list_messages(thread_id)
+    pending = chat_store.get_pending_plan(thread_id)
+    running = chat_store.list_actions(thread_id,
+                                      statuses=("queued", "running"))
     return ChatThreadView(
         id=thread["id"],
         # Reloading a transcript re-reads it. It never re-runs a query:
         # opening yesterday's conversation must not touch the warehouse.
         messages=[_message_out(m, m["body"]) for m in messages],
+        # A plan outlives the tab that proposed it. Someone who reloads
+        # mid-confirmation must find the same document, not a change that
+        # quietly disappeared.
+        pending_plan=plan_view(pending) if pending else None,
+        active_actions=[_progress(a) for a in running],
     )
 
 
@@ -138,3 +200,114 @@ def rerun_transient(result_id: uuid.UUID) -> TransientResultView:
         data_max_ts=str(r.data_max_ts or "") or None,
         fetched_at=str(r.fetched_at or "") or None,
     )
+
+
+@router.post("/plans/{plan_id}/confirm")
+def confirm(plan_id: uuid.UUID, body: ConfirmIn,
+            background: BackgroundTasks) -> PlanConfirmedView:
+    """Authorise a plan and carry it out.
+
+    No model is asked what the change is; that was settled when the plan
+    was written. A model is asked only the questions the plan already
+    contains, and only for cards, and only after this returns.
+    """
+    plan = chat_store.get_plan(plan_id)
+    if plan is None:
+        raise HTTPException(404, "no such plan")
+    if plan["status"] != "pending":
+        # Not a 404: the plan exists and the person can see it. Saying so
+        # is what stops a double-tap reading as a lost change.
+        raise HTTPException(409, f"that plan was already {plan['status']}")
+
+    try:
+        client = make_client(body.provider, hard=body.hard)
+    except LLMError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+    try:
+        outcome = confirm_plan.confirm(plan, client=client)
+    except PlanRefused as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except chat_store.PlanTransitionError as exc:
+        raise HTTPException(409, "that plan was confirmed elsewhere") from exc
+
+    board = store.get_board(outcome.board_id) if outcome.board_id else None
+    stored = chat_store.append_message(
+        plan["thread_id"], role="assistant",
+        body={"action": "applied", "say": outcome.applied.summary,
+              "plan_id": str(plan_id),
+              "board_id": str(outcome.board_id) if outcome.board_id else None,
+              "action_id": (str(outcome.action_id) if outcome.action_id
+                            else None)},
+        active_board_id=outcome.board_id,
+        active_board_title=(board or {}).get("title", ""),
+        data_exposed=False,
+    )
+
+    action = None
+    if outcome.action_id is not None:
+        action = _progress(_action_or_404(outcome.action_id))
+        # After the response, not during it. The person watches the cards
+        # arrive rather than watching a spinner on the request that asked
+        # for them.
+        background.add_task(confirm_plan.run_action, outcome.action_id,
+                            client=client)
+
+    return PlanConfirmedView(message=_message_out(stored, stored["body"]),
+                             board_id=outcome.board_id, action=action)
+
+
+@router.post("/plans/{plan_id}/cancel")
+def cancel(plan_id: uuid.UUID) -> ChatMessageOut:
+    plan = chat_store.get_plan(plan_id)
+    if plan is None:
+        raise HTTPException(404, "no such plan")
+    if plan["status"] != "pending":
+        raise HTTPException(409, f"that plan was already {plan['status']}")
+
+    chat_store.transition_plan(plan_id, expected="pending",
+                               status="cancelled")
+    stored = chat_store.append_message(
+        plan["thread_id"], role="assistant",
+        body={"action": "cancelled", "say": "Discarded, nothing changed.",
+              "plan_id": str(plan_id)},
+        active_board_id=None, active_board_title="", data_exposed=False,
+    )
+    return _message_out(stored, stored["body"])
+
+
+@router.get("/actions/{action_id}")
+def action_progress(action_id: uuid.UUID) -> ActionProgressView:
+    return _progress(_action_or_404(action_id))
+
+
+@router.get("/actions/{action_id}/events")
+def action_events(action_id: uuid.UUID, after: int = 0
+                  ) -> list[ChatEventEnvelope]:
+    """Everything that has happened to this action since event `after`.
+
+    A log rather than a stream, and the browser asks for the tail it has
+    not seen. Same events, same order, same payloads a stream would carry;
+    what it costs is a poll, and what it buys is that a reconnect is just
+    another request with a different number in it.
+    """
+    action = _action_or_404(action_id)
+    return [
+        ChatEventEnvelope(event={
+            "kind": event["kind"], "id": event["id"],
+            "action_id": action["id"], "payload": event["payload"],
+        })
+        for event in chat_store.list_events(action_id, after_id=after)
+    ]
+
+
+@router.post("/actions/{action_id}/stop")
+def stop_action(action_id: uuid.UUID) -> ActionProgressView:
+    """Stop after the card being built, not during it.
+
+    A model call already in flight is paid for either way, and a card
+    half-written to the database is worse than one extra card.
+    """
+    _action_or_404(action_id)
+    chat_store.request_cancel(action_id)
+    return _progress(_action_or_404(action_id))

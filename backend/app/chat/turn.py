@@ -8,7 +8,15 @@ a batch should wait, and only the caller knows which it is.
 
 The turn loop never applies a mutation. It produces intent; a plan resolver
 freezes that into an exact preview and a person confirms it. A mutation
-arriving here without a planner is refused, not quietly executed.
+arriving here with changes switched off is refused, not quietly executed.
+
+A turn is one call when the answer is prose and two when it is not. The
+first picks the shape; the second fills it in against a schema holding only
+that shape. The reason is a measured grammar ceiling -- see
+schema.TaskAction -- but the arrangement pays for itself twice over: the
+router cannot name a card or write a query, and `run_query` and `edit_card`
+are resolved through query_step.ask(), which is the only place in this
+application that turns English into a semantic query.
 """
 
 from __future__ import annotations
@@ -19,31 +27,40 @@ from typing import Any, Callable
 from uuid import UUID
 
 from ..config import Provider, settings
-from ..deps import LAYER
+from ..deps import LAYER, SYNONYMS
 from ..llm.client import LLMClient, LLMError, LLMRateLimited, LLMSchemaError
+from ..llm.query_step import ask as ask_model
 from ..render import render
 from ..semantic.query import SemanticQuery
 from ..semantic.restate import restate
-from ..semantic.validate import QueryValidationError, validate_query
 from ..store import cards as store
 from ..store import chat as chat_store
+from . import plan as planner
 from .context import ContextLimits, build_context
-from .prompt import build_chat_system_prompt
+from .prompt import build_chat_system_prompt, detail_instruction
 from .schema import (
+    DETAIL_SCHEMAS,
     ChatMessageOut,
-    ChatReadOnlyResponse,
+    ChatRouterResponse,
     ChatTurnResponse,
+    PendingPlanView,
+    RunQueryAction,
     SourceRef,
     TransientResultView,
     VerifiedClaimView,
 )
 from .verify import verify_turn
 
-READ_ONLY = {"answer", "run_query", "clarify", "refuse"}
+SPOKEN = {"answer", "clarify", "refuse"}
 
-NO_PLANNER = (
+NO_CHANGES = (
     "I can only read dashboards at the moment. Changing them is not "
     "switched on in this build."
+)
+
+ALREADY_PENDING = (
+    "There is already a change waiting for you to confirm or discard. "
+    "Deal with that one first and I will pick this up after."
 )
 
 
@@ -125,7 +142,7 @@ def _message_out(stored: dict, body: dict) -> ChatMessageOut:
 
 
 def run_turn(request: TurnRequest, *, client: LLMClient,
-             mutation_planner: Callable | None = None,
+             allow_changes: bool = True,
              today: date | None = None) -> ChatTurnResponse:
     board = store.get_board(request.active_board_id)
     if board is None:
@@ -167,48 +184,127 @@ def run_turn(request: TurnRequest, *, client: LLMClient,
     base = (f"Today is {today:%d %B %Y}.\n\n{built.text}\n\n"
             f"# the person asks\n{request.question}")
 
+    try:
+        turn = _ask(client, system, base, ChatRouterResponse,
+                    unwrap=True)
+    except _Refused as exc:
+        return _store(request, board, built,
+                      {"action": "refuse", "refusal": str(exc)}, client)
+    except LLMRateLimited:
+        # Not a refusal. The caller decides whether to wait or to say "try
+        # again in a moment".
+        raise
+
+    if turn.action in SPOKEN:
+        return _dispatch(request, board, built, turn, client, cards)
+
+    return _task(request, board, built, turn, client, cards, boards,
+                 system=system, base=base, allow_changes=allow_changes)
+
+
+class _Refused(RuntimeError):
+    """A model failure the person should be told about in a sentence."""
+
+
+def _ask(client: LLMClient, system: str, user: str, schema, *,
+         unwrap: bool = False):
+    """One structured ask, with the retry discipline the whole app shares.
+
+    An answer outside the grammar is retried once with the reason attached,
+    because a stated reason is a different question from the same question
+    asked twice. A second miss is the grammar telling you something, not
+    bad luck.
+    """
     reason: str | None = None
-    turn = None
     for _ in range(2):
-        user = base if reason is None else (
-            f"{base}\n\nYour previous answer was rejected: {reason}\n"
-            f"Return a corrected action using only the listed vocabulary.")
+        prompt = user if reason is None else (
+            f"{user}\n\nYour previous answer was rejected: {reason}\n"
+            f"Return a corrected answer using only the listed vocabulary.")
         try:
-            turn = client.ask(system, user, ChatReadOnlyResponse).turn
+            answer = client.ask(system, prompt, schema)
+            return answer.turn if unwrap else answer
         except LLMSchemaError as exc:
             reason = str(exc)
-            continue
         except LLMRateLimited:
-            # Not a refusal. The caller decides whether to wait or to say
-            # "try again in a moment".
             raise
         except LLMError as exc:
-            return _store(request, board, built,
-                          {"action": "refuse", "refusal": str(exc)}, client)
+            raise _Refused(str(exc)) from exc
+    raise _Refused(reason or "I could not put that into a form I can run.")
 
-        if turn.action == "run_query":
-            try:
-                validate_query(turn.semantic_query, LAYER)
-            except QueryValidationError as exc:
-                reason = exc.detail
-                turn = None
-                continue
-        break
 
-    if turn is None:
+def _task(request, board, built, turn, client, cards, boards, *,
+          system: str, base: str, allow_changes: bool) -> ChatTurnResponse:
+    """The second half of a turn that is not prose.
+
+    `run_query` needs no second schema: the person already wrote the
+    question, and query_step.ask() is the path that turns a question into a
+    validated query everywhere else in this application.
+    """
+    if turn.kind == "run_query":
+        return _run_query(request, board, built, turn, client)
+
+    if not allow_changes:
         return _store(request, board, built,
-                      {"action": "refuse", "refusal": reason or
-                       "I could not put that into a form I can run."},
-                      client)
+                      {"action": "refuse", "refusal": NO_CHANGES}, client)
 
-    if turn.action not in READ_ONLY and mutation_planner is None:
+    if chat_store.get_pending_plan(request.thread_id) is not None:
         return _store(request, board, built,
-                      {"action": "refuse", "refusal": NO_PLANNER}, client)
+                      {"action": "refuse", "refusal": ALREADY_PENDING}, client)
 
-    if turn.action not in READ_ONLY:
-        return mutation_planner(request, board, turn, client)
+    user = f"{base}\n\n{detail_instruction(turn.kind, turn.say)}"
+    try:
+        detail = _ask(client, system, user, DETAIL_SCHEMAS[turn.kind])
+        resolved = planner.resolve(turn.kind, detail, board=board,
+                                   boards=boards, cards=cards, client=client)
+    except _Refused as exc:
+        return _store(request, board, built,
+                      {"action": "refuse", "refusal": str(exc)}, client)
+    except planner.PlanRefused as exc:
+        return _store(request, board, built,
+                      {"action": "refuse", "refusal": str(exc)}, client)
 
-    return _dispatch(request, board, built, turn, client, cards)
+    # `say` comes from the router turn, which is where the model described
+    # what it was about to do. The detail call is not asked to describe it
+    # again; it is asked to fill it in.
+    try:
+        stored_plan = chat_store.save_pending_plan(
+            request.thread_id,
+            action={"kind": resolved.kind,
+                    "detail": detail.model_dump(mode="json")},
+            resolved=resolved.stored(say=turn.say),
+            basis=resolved.basis,
+        )
+    except chat_store.PendingPlanExistsError:
+        return _store(request, board, built,
+                      {"action": "refuse", "refusal": ALREADY_PENDING}, client)
+
+    view = plan_view(stored_plan, say=turn.say)
+    response = _store(request, board, built,
+                      {"action": resolved.kind, "say": turn.say,
+                       "plan_id": str(stored_plan["id"])}, client)
+    return response.model_copy(update={"pending_plan": view})
+
+
+def plan_view(stored: dict, *, say: str = "") -> PendingPlanView:
+    """A stored plan as the browser sees it.
+
+    Staleness is computed at read time rather than stored, because the
+    thing that makes a plan stale happens somewhere else entirely -- on the
+    board, in another tab, after this row was written.
+    """
+    resolved = stored["resolved"] or {}
+    return PendingPlanView(
+        id=stored["id"],
+        action=resolved.get("kind", ""),
+        say=say or resolved.get("say", ""),
+        operations=resolved.get("operations", []),
+        cards=[{k: v for k, v in c.items() if k != "chart_hint"}
+               for c in resolved.get("cards", [])],
+        target_board_id=resolved.get("board_id"),
+        target_board_title=resolved.get("board_title", ""),
+        stale=planner.is_stale(stored.get("basis") or {}),
+        created_at=str(stored["created_at"]),
+    )
 
 
 def _dispatch(request, board, built, turn, client,
@@ -225,9 +321,6 @@ def _dispatch(request, board, built, turn, client,
             # backlog this application would then have to own.
             "request_text": turn.request_text,
         }, client)
-
-    if turn.action == "run_query":
-        return _run_query(request, board, built, turn, client)
 
     rows_by_card = {
         UUID(c["id"]): c["render"]["rows"]
@@ -256,7 +349,26 @@ def _dispatch(request, board, built, turn, client,
 
 
 def _run_query(request, board, built, turn, client) -> ChatTurnResponse:
-    r = render(turn.semantic_query, LAYER, chart_hint=turn.chart_hint,
+    """A question the cards on screen cannot answer.
+
+    The query is written by query_step.ask(), not by the chat grammar. That
+    is the only place in this application that turns English into a
+    semantic query, and routing through it means a chat query gets the
+    synonym guard, layer validation and the retry that a card's question
+    gets -- rather than a second, weaker implementation of all three.
+    """
+    outcome = ask_model(request.question, LAYER, client, synonyms=SYNONYMS)
+    if outcome.refusal:
+        return _store(request, board, built,
+                      {"action": "refuse", "refusal": outcome.refusal}, client)
+    if outcome.clarify:
+        return _store(request, board, built,
+                      {"action": "clarify", "clarify": outcome.clarify},
+                      client)
+
+    query = RunQueryAction(say=turn.say, semantic_query=outcome.query,
+                           chart_hint=outcome.chart_hint)
+    r = render(query.semantic_query, LAYER, chart_hint=query.chart_hint,
                ttl_seconds=settings.chat_transient_ttl_seconds)
 
     if r.state != "ready":
@@ -267,15 +379,15 @@ def _run_query(request, board, built, turn, client) -> ChatTurnResponse:
 
     stored = chat_store.save_transient(
         request.thread_id,
-        query=turn.semantic_query.model_dump(mode="json"),
-        chart_hint=turn.chart_hint, title=turn.say or "",
+        query=query.semantic_query.model_dump(mode="json"),
+        chart_hint=query.chart_hint, title=query.say or "",
         cache=r.cache or {},
         ttl_seconds=settings.chat_transient_ttl_seconds,
     )
 
     view = TransientResultView(
         id=stored["id"], restatement=r.restatement or "",
-        semantic_query=turn.semantic_query, chart_hint=turn.chart_hint,
+        semantic_query=query.semantic_query, chart_hint=query.chart_hint,
         vega_spec=r.vega_spec, rows=r.rows or [], row_count=r.row_count or 0,
         compiled_sql=r.compiled_sql or "", data_max_ts=str(r.data_max_ts or "")
         or None, fetched_at=str(r.fetched_at or "") or None,
@@ -284,7 +396,7 @@ def _run_query(request, board, built, turn, client) -> ChatTurnResponse:
 
     # The transcript keeps the question and the cache id, never the rows.
     response = _store(request, board, built, {
-        "action": "run_query", "say": turn.say,
+        "action": "run_query", "say": query.say,
         "transient_result_id": str(stored["id"]),
         "restatement": r.restatement or "",
     }, client)

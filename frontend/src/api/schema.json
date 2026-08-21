@@ -509,7 +509,7 @@
     },
     "ClaimOperand": {
       "additionalProperties": false,
-      "description": "Where a number came from: a card, a field, and the keys that pick out\nexactly one row. The model supplies the address, never the value.",
+      "description": "Where a number came from: a card, a field, and the keys that pick out\nexactly one row. The model supplies the address, never the value.\n\nThe row is addressed by position, not by matching column values.\n\nMatching was tried first and failed against real models. Asked three\nways \u2014 a required field, a schema description, and an explicit prompt\nrule \u2014 Haiku still sent an empty key set, which matches every row.\nTightening the type to forbid that did not help either: Anthropic's\nconstrained decoding does not enforce `minProperties`, so the model\nemitted `{}` regardless and the whole turn was rejected client-side.\n\nA position is mechanical. The rows are listed in the prompt in order,\nthe server holds the same snapshot for the whole turn, and an index\nthat does not exist is simply withdrawn.",
       "properties": {
         "card_id": {
           "format": "uuid",
@@ -517,38 +517,23 @@
           "type": "string"
         },
         "field": {
+          "description": "The column holding the number, e.g. the measure column.",
           "maxLength": 120,
           "minLength": 1,
           "title": "Field",
           "type": "string"
         },
-        "keys": {
-          "additionalProperties": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "integer"
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "title": "Keys",
-          "type": "object"
+        "row": {
+          "description": "Which row of that card the number is read from, counting from 0 in the order the rows are listed.",
+          "minimum": 0,
+          "title": "Row",
+          "type": "integer"
         }
       },
       "required": [
         "card_id",
-        "field"
+        "field",
+        "row"
       ],
       "title": "ClaimOperand",
       "type": "object"
@@ -1304,6 +1289,44 @@
         "layout"
       ],
       "title": "PlanCardPreview",
+      "type": "object"
+    },
+    "PlanConfirmedView": {
+      "additionalProperties": false,
+      "description": "What a confirmation returns.\n\n`action` is present only when cards still have to be built, and its\nabsence is how the browser knows the change is already complete rather\nthan something to keep watching.",
+      "properties": {
+        "action": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ActionProgressView"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "board_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Board Id"
+        },
+        "message": {
+          "$ref": "#/$defs/ChatMessageOut"
+        }
+      },
+      "required": [
+        "message"
+      ],
+      "title": "PlanConfirmedView",
       "type": "object"
     },
     "PlanEvent": {
@@ -2163,6 +2186,9 @@
     "chat_pending_plan": {
       "$ref": "#/$defs/PendingPlanView"
     },
+    "chat_plan_confirmed": {
+      "$ref": "#/$defs/PlanConfirmedView"
+    },
     "chat_thread_view": {
       "$ref": "#/$defs/ChatThreadView"
     },
@@ -2186,6 +2212,7 @@
     "chat_turn_response",
     "chat_thread_view",
     "chat_pending_plan",
+    "chat_plan_confirmed",
     "chat_transient_result",
     "chat_event"
   ],

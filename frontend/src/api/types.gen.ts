@@ -335,7 +335,14 @@ export type Operands =
       ClaimOperand
     ];
 export type CardId = string;
+/**
+ * The column holding the number, e.g. the measure column.
+ */
 export type Field = string;
+/**
+ * Which row of that card the number is read from, counting from 0 in the order the rows are listed.
+ */
+export type Row = number;
 export type Operation = "exact" | "rounded" | "sum" | "difference" | "ratio" | "percentage" | "percentage_change";
 export type Text = string;
 export type Say = string;
@@ -571,13 +578,12 @@ export type Failed1 = number;
 export type Id7 = string;
 export type Status = "pending" | "running" | "stopping" | "stopped" | "done" | "failed";
 export type Total = number;
-export type ActiveActions = ActionProgressView[];
-export type Id8 = string;
+export type BoardId6 = string | null;
 export type Action14 = string;
 export type ActiveBoardId = string | null;
 export type ActiveBoardTitle = string;
 export type DisplayedValue1 = string;
-export type BoardId6 = string;
+export type BoardId7 = string;
 export type CardId6 = string;
 export type CardTitle1 = string;
 export type Sources = SourceRef[];
@@ -586,12 +592,14 @@ export type Claims1 = VerifiedClaimView[];
 export type Clarify = string | null;
 export type CreatedAt1 = string;
 export type DataExposed = boolean;
-export type Id9 = string;
+export type Id8 = string;
 export type MissingMetric1 = string | null;
 export type Refusal = string | null;
 export type RequestText1 = string | null;
 export type Role = "user" | "assistant";
 export type Say11 = string;
+export type ActiveActions = ActionProgressView[];
+export type Id9 = string;
 export type Messages = ChatMessageOut[];
 export type ChartHint3 =
   | (
@@ -675,6 +683,7 @@ export interface ApiContract {
   chat_action: ChatAction;
   chat_event: ChatEventEnvelope;
   chat_pending_plan: PendingPlanView;
+  chat_plan_confirmed: PlanConfirmedView;
   chat_thread_view: ChatThreadView;
   chat_transient_result: TransientResultView;
   chat_turn_response: ChatTurnResponse;
@@ -702,14 +711,24 @@ export interface Claim {
 /**
  * Where a number came from: a card, a field, and the keys that pick out
  * exactly one row. The model supplies the address, never the value.
+ *
+ * The row is addressed by position, not by matching column values.
+ *
+ * Matching was tried first and failed against real models. Asked three
+ * ways — a required field, a schema description, and an explicit prompt
+ * rule — Haiku still sent an empty key set, which matches every row.
+ * Tightening the type to forbid that did not help either: Anthropic's
+ * constrained decoding does not enforce `minProperties`, so the model
+ * emitted `{}` regardless and the whole turn was rejected client-side.
+ *
+ * A position is mechanical. The rows are listed in the prompt in order,
+ * the server holds the same snapshot for the whole turn, and an index
+ * that does not exist is simply withdrawn.
  */
 export interface ClaimOperand {
   card_id: CardId;
   field: Field;
-  keys?: Keys;
-}
-export interface Keys {
-  [k: string]: string | number | number | boolean | null;
+  row: Row;
 }
 /**
  * A read-only query answered in the transcript. It renders with the
@@ -977,11 +996,17 @@ export interface PlanOperation {
   kind: Kind6;
   summary: Summary;
 }
-export interface ChatThreadView {
-  active_actions?: ActiveActions;
-  id: Id8;
-  messages?: Messages;
-  pending_plan?: PendingPlanView | null;
+/**
+ * What a confirmation returns.
+ *
+ * `action` is present only when cards still have to be built, and its
+ * absence is how the browser knows the change is already complete rather
+ * than something to keep watching.
+ */
+export interface PlanConfirmedView {
+  action?: ActionProgressView | null;
+  board_id?: BoardId6;
+  message: ChatMessageOut;
 }
 export interface ActionProgressView {
   action: Action13;
@@ -1000,7 +1025,7 @@ export interface ChatMessageOut {
   clarify?: Clarify;
   created_at: CreatedAt1;
   data_exposed?: DataExposed;
-  id: Id9;
+  id: Id8;
   missing_metric?: MissingMetric1;
   refusal?: Refusal;
   request_text?: RequestText1;
@@ -1016,9 +1041,15 @@ export interface VerifiedClaimView {
  * A clickable chip back to the card a figure came from.
  */
 export interface SourceRef {
-  board_id: BoardId6;
+  board_id: BoardId7;
   card_id: CardId6;
   card_title: CardTitle1;
+}
+export interface ChatThreadView {
+  active_actions?: ActiveActions;
+  id: Id9;
+  messages?: Messages;
+  pending_plan?: PendingPlanView | null;
 }
 /**
  * A read-only chat query, with the same trust surface a card carries.

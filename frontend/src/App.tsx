@@ -24,6 +24,10 @@ export default function App() {
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Bumped when something outside the grid changes it. Board keys on this,
+  // so a chat change reloads the cards the same way switching tabs does --
+  // one reload path rather than two ways for the screen to be stale.
+  const [epoch, setEpoch] = useState(0);
 
   // One provider for the whole session, remembered. Asked once per blank
   // card it was the same question four times on a four-card board.
@@ -167,6 +171,20 @@ export default function App() {
       if (boardId === id && left.length) select(left[0].id);
     });
 
+  /** A change the assistant applied. Everything on screen may have moved:
+   *  the tab list, the tab you are on, and the cards under it. */
+  const applied = useCallback(async (targetBoardId: string | null) => {
+    const listed = await api.listBoards();
+    setBoards(listed);
+    if (targetBoardId && listed.some((b) => b.id === targetBoardId)) {
+      select(targetBoardId);
+    } else if (!listed.some((b) => b.id === boardId) && listed.length) {
+      // The dashboard you were on was the one removed.
+      select(listed[0].id);
+    }
+    setEpoch((n) => n + 1);
+  }, [boardId, select]);
+
   const reorder = (order: string[]) =>
     guard(async () => {
       const before = boards;
@@ -230,7 +248,7 @@ export default function App() {
       >
         {boardId && (
           <Board
-            key={boardId}
+            key={`${boardId}:${epoch}`}
             boardId={boardId}
             examples={examples}
             provider={provider}
@@ -264,6 +282,7 @@ export default function App() {
           onConsentChange={(v) => { setShareData(v); prefs.setShareData(v); }}
           onThreadChange={(id) => { setThreadId(id); prefs.setThreadId(id); }}
           onNavigate={(targetBoard) => select(targetBoard)}
+          onApplied={applied}
         />
       )}
     </>

@@ -330,7 +330,8 @@ class _OpenAICompatible:
     """Any endpoint speaking the OpenAI chat protocol.
 
     Two live here because two exist: OpenAI itself, and NVIDIA NIM, which
-    hosts DeepSeek behind the same wire format. The difference between them
+    hosts a catalogue of open-weight models behind the same wire format.
+    The difference between them
     is a base URL, a key, and how much structure the server will enforce --
     which is what `structured` selects:
 
@@ -473,11 +474,17 @@ class OpenAIClient(_OpenAICompatible):
 
 
 class NvidiaClient(_OpenAICompatible):
-    """DeepSeek and friends, hosted by NVIDIA behind the OpenAI protocol.
+    """Open-weight models hosted by NVIDIA behind the OpenAI protocol.
 
     `json_object` rather than strict parsing: NIM's schema enforcement
     varies by model, and a provider that 400s on an unsupported keyword is
     worse than one that returns JSON we check ourselves.
+
+    Which model answers is a setting rather than a fact about this class.
+    NIM's catalogue moves underneath it -- a model can stay in `/models`
+    long after it stops being served, at which point the request hangs
+    instead of failing -- so `make models` and the timeout above are both
+    load-bearing here in a way they are not for a single-model vendor.
     """
 
     provider: Provider = "nvidia"

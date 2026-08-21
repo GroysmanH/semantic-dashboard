@@ -213,6 +213,15 @@ def get_pending_plan(
     )
 
 
+def get_plan(plan_id: uuid.UUID, *, conn=None) -> dict[str, Any] | None:
+    return _q(
+        f"SELECT {PLAN_COLUMNS} FROM app.chat_plan WHERE id = %s",
+        (plan_id,),
+        fetch="one",
+        conn=conn,
+    )
+
+
 def transition_plan(
     plan_id: uuid.UUID, *, expected: str, status: str, conn=None
 ) -> dict[str, Any]:
@@ -294,6 +303,54 @@ def transition_action(
     if action is None:
         raise ActionTransitionError("action status changed before transition")
     return action
+
+
+def request_cancel(action_id: uuid.UUID, *, conn=None) -> dict[str, Any] | None:
+    """Ask a running generation to stop after the card it is on.
+
+    A flag rather than an interrupt: the worker is mid-way through a model
+    call and a card half-written to the database is worse than one extra
+    card.
+    """
+    return _q(
+        "UPDATE app.chat_action SET cancel_requested = true, "
+        f"updated_at = now() WHERE id = %s RETURNING {ACTION_COLUMNS}",
+        (action_id,),
+        fetch="one",
+        conn=conn,
+    )
+
+
+def list_actions(
+    thread_id: uuid.UUID, *, statuses: tuple[str, ...] | None = None, conn=None
+) -> list[dict[str, Any]]:
+    if statuses is None:
+        return _q(
+            f"SELECT {ACTION_COLUMNS} FROM app.chat_action "
+            "WHERE thread_id = %s ORDER BY created_at, id",
+            (thread_id,),
+            fetch="all",
+            conn=conn,
+        )
+    return _q(
+        f"SELECT {ACTION_COLUMNS} FROM app.chat_action "
+        "WHERE thread_id = %s AND status = ANY(%s) ORDER BY created_at, id",
+        (thread_id, list(statuses)),
+        fetch="all",
+        conn=conn,
+    )
+
+
+def update_action_item(
+    item_id: uuid.UUID, *, status: str, error: str | None = None, conn=None
+) -> dict[str, Any] | None:
+    return _q(
+        "UPDATE app.chat_action_item SET status = %s, error = %s, "
+        f"updated_at = now() WHERE id = %s RETURNING {ITEM_COLUMNS}",
+        (status, error, item_id),
+        fetch="one",
+        conn=conn,
+    )
 
 
 def append_action_item(

@@ -1,8 +1,12 @@
 import { request } from "./client";
 import type { Provider } from "./client";
 import type {
+  ActionProgressView,
+  ChatEventEnvelope,
+  ChatMessageOut,
   ChatThreadView,
   ChatTurnResponse,
+  PlanConfirmedView,
   TransientResultView,
 } from "./types.gen";
 
@@ -31,6 +35,29 @@ export const chatApi = {
     }),
   rerunTransient: (resultId: string) =>
     request<TransientResultView>(`/chat/transient/${resultId}/rerun`, {
+      method: "POST",
+    }),
+
+  /** Authorises exactly the plan that was shown. The provider is sent
+   *  again because a plan can sit unconfirmed while the setting changes,
+   *  and the one on screen is the one that should pay. */
+  confirmPlan: (planId: string, body: { provider?: Provider; hard?: boolean }) =>
+    request<PlanConfirmedView>(`/chat/plans/${planId}/confirm`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  cancelPlan: (planId: string) =>
+    request<ChatMessageOut>(`/chat/plans/${planId}/cancel`, {
+      method: "POST",
+    }),
+
+  actionProgress: (actionId: string) =>
+    request<ActionProgressView>(`/chat/actions/${actionId}`),
+  actionEvents: (actionId: string, after = 0) =>
+    request<ChatEventEnvelope[]>(
+      `/chat/actions/${actionId}/events?after=${after}`),
+  stopAction: (actionId: string) =>
+    request<ActionProgressView>(`/chat/actions/${actionId}/stop`, {
       method: "POST",
     }),
 };

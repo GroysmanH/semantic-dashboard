@@ -316,6 +316,52 @@ body {
 .chat-assistant.chat-clarify { border-left: 2px solid var(--accent); padding-left: 0.6rem; }
 .chat-empty p { color: var(--ink-faint); }
 
+/* A change waiting to be authorised. Boxed and rules-first rather than
+   coloured in: this is a document to read, and the one moment in the panel
+   where skimming is the wrong behaviour. */
+.chat-plan {
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--r);
+  background: var(--surface-2);
+  font-size: 13px;
+}
+.plan-ops {
+  margin: 0.4rem 0 0.6rem;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--rule-soft);
+}
+.plan-ops li {
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.plan-op { display: block; }
+.plan-diff {
+  display: block;
+  margin-top: 0.2rem;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+.plan-diff s { color: var(--ink-faint); }
+.plan-actions { display: flex; gap: 0.4rem; }
+
+.chat-progress { font-size: 13px; }
+.progress-rail {
+  height: 3px;
+  margin: 0.4rem 0 0.5rem;
+  background: var(--rule-soft);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.progress-rail span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 200ms linear;
+}
+
 .chat-sources {
   display: flex;
   flex-wrap: wrap;

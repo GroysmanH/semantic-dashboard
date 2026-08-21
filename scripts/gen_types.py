@@ -23,6 +23,7 @@ from app.chat.schema import (  # noqa: E402
     ChatThreadView,
     ChatTurnResponse,
     PendingPlanView,
+    PlanConfirmedView,
     TransientResultView,
 )
 from app.render import Render  # noqa: E402
@@ -45,6 +46,7 @@ class ApiContract(BaseModel):
     chat_turn_response: ChatTurnResponse
     chat_thread_view: ChatThreadView
     chat_pending_plan: PendingPlanView
+    chat_plan_confirmed: PlanConfirmedView
     chat_transient_result: TransientResultView
     chat_event: ChatEventEnvelope
 

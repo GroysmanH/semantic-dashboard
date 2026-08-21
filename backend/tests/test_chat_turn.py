@@ -13,14 +13,19 @@ import uuid
 
 import pytest
 
-from app.chat.schema import ChatModelResponse
 from app.chat.turn import TurnRequest, run_turn
 from app.llm.client import LLMError, LLMRateLimited, LLMSchemaError
 from app.store import cards as store
 
 
 class FakeClient:
-    """Returns queued payloads, recording what it was asked."""
+    """Returns queued payloads, recording what it was asked.
+
+    A turn is one call when the answer is prose and two when it is not, so
+    a payload here is validated against whatever schema the caller asked
+    for: the router's wrapper for the first call, a bare action model for
+    the second.
+    """
 
     provider = "gemini"
     model = "fake-1"
@@ -34,7 +39,13 @@ class FakeClient:
         nxt = self.payloads.pop(0)
         if isinstance(nxt, Exception):
             raise nxt
-        return ChatModelResponse(turn=nxt)
+        if "turn" in schema.model_fields:
+            return schema.model_validate({"turn": nxt})
+        return schema.model_validate(nxt)
+
+
+def task(kind, say="Here is what I will do."):
+    return {"action": "task", "say": say, "kind": kind}
 
 
 def answer(say="West Kazakhstan leads.", claims=None):
@@ -129,33 +140,86 @@ def test_the_date_is_stated_in_the_user_block(thread, board):
     assert re.search(r"\b20\d\d\b", user)
 
 
-# -- mutations are proposals --------------------------------------------
+# -- changes are proposals ----------------------------------------------
 
-def test_a_mutation_without_a_planner_refuses_rather_than_applying(thread, board):
+def test_a_change_with_changes_switched_off_refuses(thread, board):
     before = len(store.list_cards(board["id"]))
-    client = FakeClient({"action": "new_cards", "cards": [
-        {"request_id": "r1", "question": "oil by region",
-         "title": "Oil by region"}]})
+    client = FakeClient(task("new_cards"))
 
-    out = run_turn(request_for(thread, board), client=client)
+    out = run_turn(request_for(thread, board), client=client,
+                   allow_changes=False)
 
     assert out.message.action == "refuse"
     assert len(store.list_cards(board["id"])) == before
+    # It never got as far as asking for the details.
+    assert len(client.seen) == 1
 
 
-@pytest.mark.parametrize("payload", [
-    {"action": "delete_card", "card_id": str(uuid.uuid4())},
-    {"action": "delete_dashboard", "board_id": str(uuid.uuid4())},
-    {"action": "rename_dashboard", "board_id": str(uuid.uuid4()),
-     "title": "Renamed"},
+def test_a_proposed_card_is_planned_and_not_created(thread, board):
+    """The turn writes a plan. Only a confirmation applies one, and that is
+    a separate request from the browser."""
+    before = len(store.list_cards(board["id"]))
+    client = FakeClient(task("new_cards", "I will add a card about oil."),
+                        {"action": "new_cards", "say": "", "cards": [
+                            {"request_id": "r1", "question": "oil by region",
+                             "title": "Oil by region"}]})
+
+    out = run_turn(request_for(thread, board), client=client)
+
+    assert out.pending_plan is not None
+    assert out.pending_plan.action == "new_cards"
+    assert [c.title for c in out.pending_plan.cards] == ["Oil by region"]
+    assert len(store.list_cards(board["id"])) == before
+
+
+def test_the_detail_call_is_told_which_kind_it_is_detailing(thread, board):
+    """The router turn is not in the conversation the second call sees, so
+    without this the model is asked to fill in a decision it has no record
+    of making."""
+    client = FakeClient(task("rename_dashboard", "I will rename this tab."),
+                        {"action": "rename_dashboard", "say": "",
+                         "board_id": str(board["id"]), "title": "Wells"})
+
+    run_turn(request_for(thread, board), client=client)
+
+    assert len(client.seen) == 2
+    assert "rename_dashboard" in client.seen[1][1]
+    assert "I will rename this tab." in client.seen[1][1]
+
+
+@pytest.mark.parametrize("kind,detail", [
+    ("delete_card", {"action": "delete_card", "say": "",
+                     "card_id": str(uuid.uuid4())}),
+    ("delete_dashboard", {"action": "delete_dashboard", "say": "",
+                          "board_id": str(uuid.uuid4())}),
+    ("rename_dashboard", {"action": "rename_dashboard", "say": "",
+                          "board_id": str(uuid.uuid4()),
+                          "title": "Renamed"}),
 ], ids=["delete_card", "delete_dashboard", "rename"])
-def test_no_destructive_action_reaches_the_store(thread, board, payload):
-    client = FakeClient(payload)
+def test_no_destructive_action_reaches_the_store(thread, board, kind, detail):
+    client = FakeClient(task(kind), detail)
     out = run_turn(request_for(thread, board), client=client)
 
     assert out.message.action == "refuse"
     assert store.get_board(board["id"]) is not None
     assert store.get_board(board["id"])["title"] == "Operations"
+
+
+def test_a_second_plan_is_refused_while_one_is_waiting(thread, board):
+    """One pending plan per conversation. Two would mean confirming the
+    older one after reading the newer one's preview."""
+    first = FakeClient(task("rename_dashboard"),
+                       {"action": "rename_dashboard", "say": "",
+                        "board_id": str(board["id"]), "title": "Wells"})
+    run_turn(request_for(thread, board), client=first)
+
+    second = FakeClient(task("rename_dashboard"))
+    out = run_turn(request_for(thread, board), client=second)
+
+    assert out.message.action == "refuse"
+    assert "confirm" in (out.message.refusal or "")
+    # Refused before spending a second call on the details.
+    assert len(second.seen) == 1
 
 
 # -- read-only variants --------------------------------------------------

@@ -22,25 +22,37 @@ about the dashboards a manager is looking at, and you propose changes to \
 them. You never write SQL, and you never invent an entity, dimension, \
 measure or value that is not listed below.
 
-You do not apply changes. You propose intent; the application resolves it \
-into an exact plan, shows that plan to the person, and applies it only \
-after they confirm. Never say that something has been created, changed, \
-moved or deleted. Say what you are proposing.
+You do not apply changes and you do not run anything. You state what \
+should happen next; the application resolves that into an exact plan, shows \
+the plan to the person, and applies it only after they confirm. Never say \
+that something has been created, changed, moved or deleted. Say what you \
+are proposing.
 
 Reply with exactly one action.
 
-Read-only actions:
 - answer: say something about what is on screen. Every number you state \
 must appear as a claim (see below).
-- run_query: ask the application to run one semantic query and show the \
-result in the conversation. Use this when the answer needs data that is not \
-already on a card.
 - clarify: use this for exactly one situation — a word in the request maps \
 to two or more measures that both exist, and picking one would be a guess. \
 Name the alternatives in the question.
 - refuse: say plainly what is not expressible or not defined, and name the \
 missing metric when there is one. Refusing is a correct outcome, not a \
 failure; a confident wrong chart is worse than a clear no.
+- task: everything else. Say what you are about to do, and set `kind` to \
+which one of these it is:
+    run_query        run one query and show the result in the conversation
+    new_cards        add cards to the dashboard the person is looking at
+    new_dashboard    create a new dashboard with its own cards
+    edit_card        change what one card shows
+    layout           move or resize cards
+    rename_dashboard  change a dashboard's name
+    reorder_dashboards  change the tab order
+    delete_card      remove a card
+    delete_dashboard  remove a dashboard
+
+You will be asked for the details of a task separately, so `say` is the \
+only place to describe it now. Do not put a query, a card id or a title in \
+this reply; there is nowhere for them to go.
 
 Refuse, do not clarify, when the request is impossible rather than \
 ambiguous. A measure that does not exist, a shape the grammar cannot hold, \
@@ -49,33 +61,21 @@ question about them delays the same answer by a turn and reads as though \
 the request might work if reworded. If you can name what is missing, you \
 are refusing, not clarifying.
 
-Run a query, do not refuse, when the measure exists in the layer and the \
-only problem is that no card on screen shows it. That includes a dashboard \
-whose name you can see but whose contents you cannot. Not being in front of \
-you is not the same as not being expressible.
+Choose the run_query task, do not refuse, when the measure exists in the \
+layer and the only problem is that no card on screen shows it. That \
+includes a dashboard whose name you can see but whose contents you cannot. \
+Not being in front of you is not the same as not being expressible.
 
-Two things are always refusals and must never be attempted as a query: more \
+Two things are always refusals and must never be attempted as a task: more \
 dimensions than the grammar allows, and arithmetic combining different date \
 grains. Both look like ordinary requests and neither can be compiled.
 
-Proposing actions:
-- new_cards: add cards to the dashboard the person is looking at.
-- new_dashboard: create a new dashboard with its own cards.
-- edit_card: replace one card's query. Supply the complete replacement \
-query, never an instruction to interpret later.
-- layout: move or resize cards.
-- rename_dashboard, reorder_dashboards: change labels and tab order.
-- delete_card, delete_dashboard: propose a removal. These are reversible \
-and always require confirmation.
-
-Rules:
-- Each card you propose is described as a question in plain language, plus \
-a title. The application turns each question into a validated query on its \
-own, so a question that cannot be answered costs one card rather than the \
-whole dashboard.
-- Propose at most six cards at a time.
-- "Add a card" means the active dashboard. "Build a dashboard" means a new \
-one. If the person names a destination, that wins over both.
+Choosing between the change tasks:
+- "Add a card" means the active dashboard, so new_cards. "Build a \
+dashboard" means a new one, so new_dashboard. If the person names a \
+destination, that wins over both.
+- A request to change what an existing card shows is edit_card, even when \
+it is phrased as a new question about the same subject.
 - You can see the contents of the active dashboard only. Other dashboards \
 are listed by name so you can refer to them, and you may propose changes to \
 them, but you cannot read what is on them.
@@ -121,3 +121,74 @@ def build_chat_system_prompt(layer: Layer) -> str:
     rendered = build_system_prompt(layer)
     _, _, entities = rendered.partition("The entities available are:\n")
     return PREAMBLE + entities
+
+
+# -- second stage --------------------------------------------------------
+#
+# The details of a task are asked for on their own, against a schema
+# holding that one shape. These go in the user block, never the system
+# block: the system prompt has to stay byte-identical for the cache to hit,
+# and this changes with every turn.
+#
+# Each one says what the fields mean in this application's terms, because
+# by this point the kind is settled and the only remaining question is how
+# to fill it in.
+
+DETAIL_INSTRUCTIONS = {
+    "new_cards": (
+        "Return the cards to add to the active dashboard. Each is a "
+        "question in plain language plus a short title — not a query. The "
+        "application turns each question into a validated query on its "
+        "own, so a question it cannot answer costs one card rather than "
+        "the whole set. Give every card its own request_id. At most six. "
+        "Leave the layout out unless the person asked for a particular "
+        "size or position; the application places cards otherwise."
+    ),
+    "new_dashboard": (
+        "Return the new dashboard's title and the cards to put on it. Each "
+        "card is a question in plain language plus a short title — not a "
+        "query. Give every card its own request_id. At most six. Leave the "
+        "layout out unless the person asked for a particular arrangement."
+    ),
+    "edit_card": (
+        "Return the id of the card to change and the change to make, in "
+        "plain language, as you would say it to the card's own edit box. "
+        "Do not write a query: the application rewrites the card's query "
+        "from your instruction and shows the person exactly what moved "
+        "before anything is applied."
+    ),
+    "layout": (
+        "Return where each card should end up. The grid is 12 columns "
+        "wide; x and y count from 0 and a card may not run past the right "
+        "edge. Only list cards that actually move."
+    ),
+    "rename_dashboard": (
+        "Return the id of the dashboard to rename and its new title."
+    ),
+    "reorder_dashboards": (
+        "Return every visible dashboard's id exactly once, in the order "
+        "the tabs should appear. A list that misses one or repeats one is "
+        "not a reorder and will be rejected."
+    ),
+    "delete_card": (
+        "Return the id of the card to remove. Removal is reversible and "
+        "the person still has to confirm it."
+    ),
+    "delete_dashboard": (
+        "Return the id of the dashboard to remove. Removal is reversible, "
+        "the person still has to confirm it, and the last remaining "
+        "dashboard cannot be removed."
+    ),
+}
+
+
+def detail_instruction(kind: str, say: str) -> str:
+    """The second-stage ask, with the model's own sentence handed back.
+
+    Restating `say` matters: the router turn is not in this conversation,
+    so without it the model is being asked to detail a decision it has no
+    record of making.
+    """
+    return (f"# the task\n"
+            f"You decided this turn is a {kind}, and said: {say!r}\n\n"
+            f"{DETAIL_INSTRUCTIONS[kind]}")
