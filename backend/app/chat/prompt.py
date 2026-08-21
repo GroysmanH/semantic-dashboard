@@ -69,9 +69,12 @@ Stating numbers:
 number, and the position of the row it comes from. Rows are listed in \
 order under each card and counted from 0, so the first row listed is row 0.
 - Use one operand per number the arithmetic needs. exact and rounded take \
-one; difference, ratio, percentage and percentage_change take two; sum \
-takes as many as you are adding. Never add an operand for the column you \
-are grouping by.
+one; difference, ratio and percentage_change take two; sum takes as many \
+as you are adding. Never add an operand for the column you are grouping by.
+- percentage takes two operands when you are working one number out as a \
+percentage of another. When the column already holds a share, give it one \
+operand: the stored value may be a fraction and you may still state it as \
+a percentage.
 - A claim's sentence must contain exactly one number, and it must be the \
 number the claim is about. Split a sentence that needs two figures into two \
 claims.

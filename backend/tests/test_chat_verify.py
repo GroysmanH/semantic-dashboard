@@ -147,9 +147,12 @@ def test_a_zero_denominator_withdraws_rather_than_raising():
     assert out.claims == []
 
 
-@pytest.mark.parametrize("operation", ["difference", "ratio", "percentage",
+@pytest.mark.parametrize("operation", ["difference", "ratio",
                                        "percentage_change"])
 def test_two_operand_operations_reject_a_single_operand(operation):
+    # percentage is deliberately absent: with one operand it means "this
+    # column already holds a share", which is a real case rather than a
+    # malformed claim.
     out = verify("", [claim("x is 1.", "1", operation=operation)])  # one operand
     assert out.claims == []
 
@@ -339,3 +342,29 @@ def test_the_fraction_reading_needs_an_actual_percent_sign():
               operation="exact",
               operands=[ClaimOperand(card_id=CARD, field="share", row=0)])
     assert verify_turn(say="", claims=[c], rows_by_card=rows).claims == []
+
+
+def test_percentage_with_one_operand_reports_a_stored_share():
+    """A percent_of_total column holds 0.2644 and the answer says 26.4%.
+    Two operands would be a/b; one operand is "this is already a share"."""
+    rows = {CARD: [{"region": "West Kazakhstan", "share": 0.2644649630068269}]}
+    c = Claim(text="West Kazakhstan has 26.4% of total production.",
+              displayed_value="0.2644649630068269", operation="percentage",
+              operands=[ClaimOperand(card_id=CARD, field="share", row=0)])
+    assert len(verify_turn(say="", claims=[c], rows_by_card=rows).claims) == 1
+
+
+def test_percentage_with_two_operands_still_divides():
+    out = verify("", [claim("Atyrau is 91.7% of Aktobe.", "91.7%",
+                            operation="percentage", operands=two())])
+    assert len(out.claims) == 1
+
+
+def test_a_qualitative_claim_survives_without_a_number():
+    """Models attach a claim to "X has the biggest share". There is no
+    figure to check, and withdrawing it replaced a true statement with a
+    disclaimer about a number nobody had stated."""
+    out = verify("West Kazakhstan has the biggest share.",
+                 [claim("West Kazakhstan has the biggest share.", "0.264")])
+    assert "biggest share" in out.safe_say
+    assert UNVERIFIED not in out.safe_say

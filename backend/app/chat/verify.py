@@ -52,7 +52,7 @@ WORD_SUFFIX = {"thousand": "k", "million": "m", "billion": "b"}
 # "." chops a figure in half and leaves "4% of total production" behind.
 SENTENCE = re.compile(r"(?<=[.!?])\s+")
 
-TWO_OPERAND = {"difference", "ratio", "percentage", "percentage_change"}
+TWO_OPERAND = {"difference", "ratio", "percentage_change"}
 
 
 class StrictModel(BaseModel):
@@ -143,6 +143,14 @@ def _compute(operation: str, values: list[Decimal]) -> Decimal | None:
         if operation == "ratio":
             return values[0] / values[1]
         if operation == "percentage":
+            # Two operands is "a as a percentage of b". One is a column
+            # that already holds a share, which a model reports as
+            # "26.4%" from a stored 0.2644 — a real and common case, and
+            # the percent-sign reading in _holds is what reconciles them.
+            if len(values) == 1:
+                return values[0]
+            if len(values) != 2:
+                return None
             return values[0] / values[1] * 100
         if operation == "percentage_change":
             return (values[1] - values[0]) / values[0] * 100
@@ -193,13 +201,23 @@ def verify_turn(*, say: str, claims: list[Claim],
                 rows_by_card: dict[UUID, list[dict]]) -> VerificationResult:
     verified: list[VerifiedClaim] = []
     withdrawn: list[str] = []
+    kept_prose: list[str] = []
 
     for claim in claims:
         parsed = _parse_displayed(claim.displayed_value)
         found = _numbers_in(claim.text)
 
-        # One figure per sentence, so every number a reader sees is
-        # individually checkable.
+        # A qualitative sentence carries no figure to check. Models attach
+        # claims to these anyway ("X has the biggest share"), and
+        # withdrawing them replaced a true, harmless statement with a
+        # disclaimer about a number nobody had stated. Keep the sentence,
+        # drop the unused claim.
+        if not found:
+            kept_prose.append(claim.text)
+            continue
+
+        # Otherwise: one figure per sentence, so every number a reader sees
+        # is individually checkable.
         if parsed is None or len(found) != 1:
             withdrawn.append(claim.text)
             continue
@@ -237,7 +255,6 @@ def verify_turn(*, say: str, claims: list[Claim],
             source_card_ids=[o.card_id for o in claim.operands],
         ))
 
-    kept = {c.text for c in verified}
     allowed = {n for c in verified for n in _numbers_in(c.text)}
 
     # Prose is held to the same rule: any figure in `say` that no verified
@@ -264,6 +281,12 @@ def verify_turn(*, say: str, claims: list[Claim],
         safe = " ".join(kept_sentences)
 
     safe = re.sub(r"\s+", " ", safe).strip()
+
+    # A sentence that never had a number in it is not evidence of an
+    # unverifiable one.
+    for text in kept_prose:
+        if text not in safe:
+            safe = f"{safe} {text}".strip()
 
     if (withdrawn or stray) and UNVERIFIED not in safe:
         safe = f"{safe} {UNVERIFIED}".strip()
