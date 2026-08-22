@@ -190,6 +190,43 @@ def restore_board(board_id: uuid.UUID, *, conn=None) -> dict[str, Any] | None:
     )
 
 
+# Fields a copy inherits. Deliberately not `previous` or
+# `pending_clarification`: those are one card's unfinished business with
+# one person, and a duplicate that arrives mid-clarification, or that can
+# undo a step it never took, is confusing rather than faithful.
+COPIED_CARD_FIELDS = ("title", "semantic_query", "chart_hint", "vega_spec",
+                      "prompt", "state", "layout", "cache", "ttl_seconds")
+
+
+def duplicate_board(
+    board_id: uuid.UUID, title: str, *, conn=None
+) -> dict[str, Any] | None:
+    """A copy of a dashboard, cards and layout and all.
+
+    The cached results come with it, so a duplicate opens showing the same
+    numbers rather than re-running every query against the warehouse the
+    moment it appears. Each card keeps its own TTL, so they refresh on
+    their own schedule exactly as the originals do.
+
+    Done in one transaction: a half-copied dashboard is worse than none,
+    because it looks like a real one.
+    """
+    with _connection(conn) as active:
+        source = get_board(board_id, conn=active)
+        if source is None:
+            return None
+
+        copy = create_board(title, conn=active)
+        for card in list_cards(board_id, conn=active):
+            fields = {k: card[k] for k in COPIED_CARD_FIELDS}
+            made = create_card(copy["id"], layout=fields.pop("layout"),
+                               conn=active)
+            if made is None:                    # pragma: no cover
+                return None
+            update_card(made["id"], conn=active, **fields)
+        return get_board(copy["id"], conn=active)
+
+
 def board_basis(
     board_ids: Iterable[uuid.UUID], *, conn=None
 ) -> dict[str, int]:

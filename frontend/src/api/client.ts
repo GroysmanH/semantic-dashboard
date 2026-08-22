@@ -99,6 +99,11 @@ export const api = {
     }),
   reorderBoards: (order: string[]) =>
     request<void>("/boards/reorder", { method: "POST", body: JSON.stringify({ order }) }),
+  duplicateBoard: (id: string, title?: string) =>
+    request<BoardSummary>(`/boards/${id}/duplicate`, {
+      method: "POST",
+      body: JSON.stringify(title ? { title } : {}),
+    }),
   deleteBoard: (id: string) => request<void>(`/boards/${id}`, { method: "DELETE" }),
   addCard: (boardId: string) => request<Card>(`/boards/${boardId}/cards`, { method: "POST" }),
   saveLayout: (boardId: string, layouts: Record<string, Layout>) =>

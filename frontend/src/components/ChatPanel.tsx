@@ -10,6 +10,7 @@ import { chatApi } from "../api/chat";
 import { MAX_WIDTH, MIN_WIDTH } from "../state/preferences";
 import AskBar from "./AskBar";
 import ChatMessage from "./ChatMessage";
+import ConfirmDialog from "./ConfirmDialog";
 import ChatPlan from "./ChatPlan";
 import ChatProgress from "./ChatProgress";
 import ChatResult from "./ChatResult";
@@ -91,6 +92,7 @@ export default function ChatPanel({
   const [hard, setHard] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
   const [plan, setPlan] = useState<PendingPlanView | null>(null);
   const [action, setAction] = useState<ActionProgressView | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
@@ -157,8 +159,8 @@ export default function ChatPanel({
   };
 
   const clear = async () => {
+    setConfirmClear(false);
     if (!threadId) return;
-    if (!window.confirm("Clear this conversation? It cannot be recovered.")) return;
     try {
       const fresh = await chatApi.clearThread(threadId);
       onThreadChange(fresh.id);
@@ -341,11 +343,19 @@ export default function ChatPanel({
       <header className="chat-head">
         <span className="eyebrow">Assistant</span>
         <span className="spacer" />
+        {/* Pinned, the board makes room; unpinned, the panel floats over
+            it. Neither touches a saved layout -- it is a margin on this
+            browser's workspace, not a position on anybody's cards. */}
         <button type="button" onClick={() => onPinnedChange(!pinned)}
-                aria-pressed={pinned}>
+                aria-pressed={pinned}
+                title={pinned
+                  ? "Let the panel float over the dashboard again"
+                  : "Make room for the panel instead of covering the cards"}>
           {pinned ? "Unpin" : "Pin"}
         </button>
-        <button type="button" onClick={() => void clear()}>Clear</button>
+        <button type="button" onClick={() => setConfirmClear(true)}>
+          Clear
+        </button>
         <button type="button" onClick={onClose} aria-label="Close the assistant">
           ×
         </button>
@@ -434,40 +444,57 @@ export default function ChatPanel({
           onChange={onProviderChange}
         />
 
-        <label
-          className="harder"
-          title={strong
-            ? "Costs more. Use it when a question needs care."
-            : `${PROVIDER_LABEL[provider] ?? provider} has one model tier, so there is nothing to escalate to.`}
-        >
-          <input
-            type="checkbox"
-            checked={hard && strong}
-            onChange={(e) => setHard(e.target.checked)}
-            disabled={busy || !strong}
-          />
-          <span>This one is hard — think harder about it</span>
-        </label>
+        <div className="switches">
+          <label
+            className="switch"
+            title={strong
+              ? "Costs more. Use it when a question needs care."
+              : `${PROVIDER_LABEL[provider] ?? provider} has one model tier, so there is nothing to escalate to.`}
+          >
+            <input
+              type="checkbox"
+              role="switch"
+              checked={hard && strong}
+              onChange={(e) => setHard(e.target.checked)}
+              disabled={busy || !strong}
+            />
+            <span className="switch-track" aria-hidden="true" />
+            <span>Think harder</span>
+          </label>
 
-        <label
-          className="harder"
-          title={dataSharingPermitted
-            ? `Sends the rows already on screen to ${PROVIDER_LABEL[provider] ?? provider}.`
-            : "Turned off on the server. Nothing on this dashboard can be sent to a model."}
-        >
-          <input
-            type="checkbox"
-            checked={shareVisibleData && dataSharingPermitted}
-            onChange={(e) => onConsentChange(e.target.checked)}
-            disabled={busy || !dataSharingPermitted}
-          />
-          <span>
-            {dataSharingPermitted
-              ? `Let ${PROVIDER_LABEL[provider] ?? provider} read the numbers on screen`
-              : "Reading the numbers on screen is disabled on the server"}
-          </span>
-        </label>
+          <label
+            className="switch"
+            title={dataSharingPermitted
+              ? `Sends the rows already on screen to ${PROVIDER_LABEL[provider] ?? provider}.`
+              : "Turned off on the server. Nothing on this dashboard can be sent to a model."}
+          >
+            <input
+              type="checkbox"
+              role="switch"
+              checked={shareVisibleData && dataSharingPermitted}
+              onChange={(e) => onConsentChange(e.target.checked)}
+              disabled={busy || !dataSharingPermitted}
+            />
+            <span className="switch-track" aria-hidden="true" />
+            <span>
+              {dataSharingPermitted
+                ? `${PROVIDER_LABEL[provider] ?? provider} reads the numbers`
+                : "Reading the numbers is off"}
+            </span>
+          </label>
+        </div>
+
       </div>
+
+      <ConfirmDialog
+        open={confirmClear}
+        title="Clear this conversation"
+        body="The transcript goes. Nothing on any dashboard changes."
+        confirmLabel="Clear it"
+        destructive
+        onConfirm={() => void clear()}
+        onCancel={() => setConfirmClear(false)}
+      />
     </aside>
   );
 }

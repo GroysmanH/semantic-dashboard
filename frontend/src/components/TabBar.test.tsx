@@ -29,6 +29,7 @@ function setup(overrides: Partial<Parameters<typeof TabBar>[0]> = {}) {
     busy: false,
     onSelect: vi.fn(),
     onCreate: vi.fn(),
+    onDuplicate: vi.fn(),
     onRename: vi.fn(),
     onDelete: vi.fn(),
     onReorder: vi.fn(),
@@ -162,5 +163,17 @@ describe("TabBar", () => {
     setup({ busy: true });
     expect(screen.getByRole("button", { name: "New dashboard" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Delete Drilling" })).toBeDisabled();
+  });
+
+  it("offers a duplicate of each dashboard", async () => {
+    // Somewhere to experiment. The original is what people keep looking
+    // at, so trying something has to not involve it.
+    const user = userEvent.setup();
+    const props = setup();
+
+    await user.click(
+      screen.getByRole("button", { name: "Duplicate Drilling" }));
+
+    expect(props.onDuplicate).toHaveBeenCalledWith("b");
   });
 });

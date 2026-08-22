@@ -233,6 +233,20 @@ def test_a_clarification_is_persisted_with_no_effects(thread, board):
     assert out.pending_plan is None
 
 
+def test_a_clarification_records_what_it_was_about(thread, board):
+    """A one-word answer needs something to attach to. The card stores the
+    same pair for the same reason -- see routes/ask.py."""
+    from app.store import chat
+
+    client = FakeClient({"action": "clarify", "question": "Oil or gas?"})
+    run_turn(request_for(thread, board, question="production by region"),
+             client=client)
+
+    stored = [m for m in chat.list_messages(thread["id"])
+              if m["body"].get("action") == "clarify"]
+    assert stored[0]["body"]["asked"] == "production by region"
+
+
 def test_a_refusal_names_the_missing_metric_and_offers_the_request(thread, board):
     client = FakeClient({
         "action": "refuse", "reason": "There is no drilling-cost metric.",

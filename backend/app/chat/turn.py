@@ -323,7 +323,12 @@ def _dispatch(request, board, built, turn, client,
               cards) -> ChatTurnResponse:
     if turn.action == "clarify":
         return _store(request, board, built,
-                      {"action": "clarify", "clarify": turn.question}, client)
+                      {"action": "clarify", "clarify": turn.question,
+                       # What the question was about, so the next turn can
+                       # rebuild the original request from a one-word
+                       # answer. The card stores the same pair for the same
+                       # reason -- see routes/ask.py.
+                       "asked": request.question}, client)
 
     if turn.action == "refuse":
         return _store(request, board, built, {

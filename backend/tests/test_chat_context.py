@@ -289,3 +289,102 @@ def test_empty_cards_do_not_claim_to_have_rows(board_a):
 
     assert built.exact_card_ids == ()
     assert json.dumps(built.notices) is not None
+
+
+# -- the conversation remembers itself -----------------------------------
+#
+# The failure this section exists for: the assistant asked "do you mean the
+# mean of the daily totals, or a moving average?", the person answered
+# "first one", and the next turn had no record of the question. It read as
+# a chat with no memory because that is what it was -- a clarifying
+# question is stored under `clarify`, and the history renderer only read
+# `say`.
+
+def _messages(*turns):
+    return [
+        {"role": role, "body": body, "active_board_title": "Operations",
+         "data_exposed": False}
+        for role, body in turns
+    ]
+
+
+def _built(messages, question="first one"):
+    from app.chat.context import ContextLimits, build_context
+
+    return build_context(
+        boards=[{"id": "b1", "title": "Operations", "position": 0}],
+        active_board={"id": "b1", "title": "Operations"},
+        rendered_cards=[], messages=messages, question=question,
+        selected_card_id=None, share_rows=False, limits=ContextLimits(),
+    )
+
+
+def test_a_clarifying_question_survives_into_the_next_turn():
+    built = _built(_messages(
+        ("user", {"action": "ask", "say": "average daily oil for May"}),
+        ("assistant", {"action": "clarify",
+                       "clarify": "The mean of the daily totals, or a "
+                                  "moving average?",
+                       "asked": "average daily oil for May"}),
+    ))
+
+    assert "moving average?" in built.text
+
+
+def test_an_outstanding_question_is_stated_as_one():
+    """Not left to be inferred from a list. A one-word answer needs
+    something to attach to, and the model should not have to work out
+    which line of the transcript that is."""
+    built = _built(_messages(
+        ("user", {"action": "ask", "say": "average daily oil for May"}),
+        ("assistant", {"action": "clarify", "clarify": "Mean or moving?",
+                       "asked": "average daily oil for May"}),
+    ))
+
+    assert "# a question of yours is outstanding" in built.text
+    assert "it was about: average daily oil for May" in built.text
+    assert "Do not ask again." in built.text
+
+
+def test_only_the_last_clarification_is_outstanding():
+    """An older one was answered or abandoned. Carrying it forward would
+    make every later turn read as a reply to it."""
+    built = _built(_messages(
+        ("assistant", {"action": "clarify", "clarify": "Oil or gas?"}),
+        ("user", {"action": "ask", "say": "oil"}),
+        ("assistant", {"action": "answer", "say": "Here is oil by region."}),
+    ))
+
+    assert "# a question of yours is outstanding" not in built.text
+
+
+def test_a_refusal_survives_into_the_next_turn():
+    """Same bug, same shape: a refusal keeps its sentence under `refusal`,
+    so it too rendered as an empty line."""
+    built = _built(_messages(
+        ("user", {"action": "ask", "say": "drilling cost by region"}),
+        ("assistant", {"action": "refuse",
+                       "refusal": "There is no drilling-cost metric."}),
+    ))
+
+    assert "no drilling-cost metric" in built.text
+
+
+def test_each_turn_says_what_kind_of_turn_it_was():
+    built = _built(_messages(
+        ("assistant", {"action": "clarify", "clarify": "Mean or moving?"}),
+    ))
+
+    assert "(clarify)" in built.text
+
+
+def test_a_turn_with_nothing_to_say_takes_no_line():
+    """A blank history line is worse than none: it implies somebody spoke
+    and the record of it was lost."""
+    built = _built(_messages(
+        ("user", {"action": "ask", "say": "hello"}),
+        ("assistant", {"action": "answer", "say": ""}),
+    ))
+
+    assert ": \n" not in built.text
+    assert not any(line.endswith(": ") for line in built.text.splitlines())

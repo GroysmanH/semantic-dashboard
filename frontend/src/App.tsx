@@ -4,6 +4,7 @@ import "react-resizable/css/styles.css";
 import "./styles.css";
 import Board from "./components/Board";
 import ChatPanel from "./components/ChatPanel";
+import ConfirmDialog from "./components/ConfirmDialog";
 import TabBar from "./components/TabBar";
 import type { BoardSummary, ChatGates, Provider, Providers } from "./api/client";
 import { api } from "./api/client";
@@ -28,6 +29,10 @@ export default function App() {
   // so a chat change reloads the cards the same way switching tabs does --
   // one reload path rather than two ways for the screen to be stale.
   const [epoch, setEpoch] = useState(0);
+  // The dashboard a confirmation is currently about, with the count read
+  // before the dialog opens so the sentence can say how much goes.
+  const [pendingDelete, setPendingDelete] =
+    useState<{ id: string; title: string; cards: number } | null>(null);
 
   // One provider for the whole session, remembered. Asked once per blank
   // card it was the same question four times on a four-card board.
@@ -161,16 +166,31 @@ export default function App() {
       setBoards((prev) => prev.map((b) => (b.id === id ? updated : b)));
     });
 
-  const remove = (id: string) =>
+  const duplicate = (id: string) =>
+    guard(async () => {
+      const copy = await api.duplicateBoard(id);
+      setBoards((prev) => [...prev, copy]);
+      // Straight to the copy. Duplicating and then having to find the new
+      // tab is two actions where the person meant one.
+      select(copy.id);
+    });
+
+  const askToRemove = (id: string) =>
     guard(async () => {
       const board = boards.find((b) => b.id === id);
-      const cards = board ? await api.getBoard(id) : null;
-      const count = cards?.cards.length ?? 0;
-      const warning = count
-        ? `Delete "${board?.title}" and its ${count} card${count === 1 ? "" : "s"}? This cannot be undone.`
-        : `Delete "${board?.title}"?`;
-      if (!window.confirm(warning)) return;
+      // Counted before asking, so the question can say how much goes
+      // rather than making the person open the tab to find out.
+      const loaded = board ? await api.getBoard(id) : null;
+      setPendingDelete({
+        id,
+        title: board?.title ?? "this dashboard",
+        cards: loaded?.cards.length ?? 0,
+      });
+    });
 
+  const remove = (id: string) =>
+    guard(async () => {
+      setPendingDelete(null);
       await api.deleteBoard(id);
       const left = boards.filter((b) => b.id !== id);
       setBoards(left);
@@ -243,8 +263,9 @@ export default function App() {
         busy={busy}
         onSelect={select}
         onCreate={create}
+        onDuplicate={duplicate}
         onRename={rename}
-        onDelete={remove}
+        onDelete={askToRemove}
         onReorder={reorder}
       />
       {error && <p className="notice broken" style={{ margin: "1rem 1.25rem" }}>{error}</p>}
@@ -268,6 +289,17 @@ export default function App() {
           />
         )}
       </div>
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={`Delete ${pendingDelete?.title ?? ""}`}
+        body={pendingDelete?.cards
+          ? `Its ${pendingDelete.cards} card${pendingDelete.cards === 1 ? "" : "s"} go with it. This cannot be undone.`
+          : "This cannot be undone."}
+        confirmLabel="Delete it"
+        destructive
+        onConfirm={() => pendingDelete && void remove(pendingDelete.id)}
+        onCancel={() => setPendingDelete(null)}
+      />
       {gates.enabled && (
         <ChatPanel
           threadId={threadId}

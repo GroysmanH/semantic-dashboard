@@ -26,7 +26,7 @@ from typing import Any
 # would exceed a small model's context outright.
 DEFAULT_MAX_ROWS = 2_000
 DEFAULT_MAX_CHARS = 60_000
-DEFAULT_HISTORY_TURNS = 6
+DEFAULT_HISTORY_TURNS = 12
 
 TOP_N = 5
 WORD = re.compile(r"[a-z0-9]+")
@@ -147,6 +147,35 @@ def _rank(card: dict, *, question_tokens: set[str],
     )
 
 
+# Where each kind of turn keeps its words. Getting this wrong is silent:
+# the line renders empty and the conversation appears to have no memory.
+SAID = {
+    "ask": "say",
+    "answer": "say",
+    "run_query": "say",
+    "clarify": "clarify",
+    "refuse": "refusal",
+}
+
+
+def _said(body: dict) -> str:
+    """What a stored turn actually said.
+
+    A clarifying question was the case that mattered: it is stored under
+    `clarify`, and reading only `say` dropped it from the history entirely.
+    The model then asked "oil or gas?", was answered "oil", and had no
+    record of ever having asked -- which reads exactly like a chat with no
+    memory, because that is what it was.
+    """
+    action = body.get("action", "")
+    key = SAID.get(action)
+    if key and body.get(key):
+        return str(body[key])
+    # Plans, applications and undos all keep their sentence in `say`; the
+    # fallback is for anything added later that does the same.
+    return str(body.get("say") or "")
+
+
 def _card_header(card: dict) -> dict[str, Any]:
     render = card.get("render") or {}
     return {
@@ -157,6 +186,23 @@ def _card_header(card: dict) -> dict[str, Any]:
         "rows": render.get("row_count") or 0,
         "data_through": render.get("data_max_ts") or "",
     }
+
+
+def _outstanding_question(messages: list[dict]) -> tuple[str, str] | None:
+    """The clarifying question the last assistant turn asked, if it did.
+
+    Only the last one counts. An older clarification was either answered or
+    abandoned, and dragging it forward would make every later turn read as
+    a reply to it.
+    """
+    for message in reversed(messages):
+        if message.get("role") != "assistant":
+            continue
+        body = message.get("body") or {}
+        if body.get("action") != "clarify":
+            return None
+        return str(body.get("clarify") or ""), str(body.get("asked") or "")
+    return None
 
 
 def build_context(
@@ -243,9 +289,32 @@ def build_context(
         lines.append("# earlier in this conversation")
         for m in recent:
             body = m.get("body") or {}
-            said = body.get("say") or body.get("question") or body.get("reason") or ""
+            said = _said(body)
+            if not said:
+                continue
             where = m.get("active_board_title") or ""
-            lines.append(f"- {m.get('role')} on {where}: {said}")
+            # The kind is stated, not just the words. "I asked a clarifying
+            # question" and "I answered" are different things to have done,
+            # and a bare sentence does not distinguish them.
+            action = body.get("action", "")
+            kind = f" ({action})" if action not in ("ask", "answer") else ""
+            lines.append(f"- {m.get('role')}{kind} on {where}: {said}")
+
+        # An outstanding clarifying question, stated as one rather than left
+        # to be inferred from the list above. This is the chat's version of
+        # the card's pending_clarification, and it exists for the same
+        # reason: a one-word answer needs something to attach to.
+        outstanding = _outstanding_question(eligible)
+        if outstanding is not None:
+            question, asked = outstanding
+            lines.append("")
+            lines.append("# a question of yours is outstanding")
+            lines.append(f"- you asked: {question}")
+            if asked:
+                lines.append(f"- it was about: {asked}")
+            lines.append("- the message below is their answer to it. Carry "
+                         "out what they originally asked, using their answer "
+                         "to settle what was ambiguous. Do not ask again.")
 
     if notices:
         lines.append("")

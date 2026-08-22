@@ -25,6 +25,15 @@ function PencilIcon() {
   );
 }
 
+function CopyIcon() {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden="true">
+      <path d="M7 3h8a2 2 0 0 1 2 2v8h-1.5V5a.5.5 0 0 0-.5-.5H7V3Z" />
+      <path d="M4.5 6h8A1.5 1.5 0 0 1 14 7.5v8A1.5 1.5 0 0 1 12.5 17h-8A1.5 1.5 0 0 1 3 15.5v-8A1.5 1.5 0 0 1 4.5 6Zm0 1.5v8h8v-8h-8Z" />
+    </svg>
+  );
+}
+
 function PlusIcon() {
   return (
     <svg viewBox="0 0 20 20" aria-hidden="true">
@@ -42,6 +51,7 @@ export default function TabBar({
   busy,
   onSelect,
   onCreate,
+  onDuplicate,
   onRename,
   onDelete,
   onReorder,
@@ -51,6 +61,9 @@ export default function TabBar({
   busy: boolean;
   onSelect: (id: string) => void;
   onCreate: () => void;
+  /** A copy to experiment on. The original is what people are going to
+   *  keep looking at, so trying something has to not involve it. */
+  onDuplicate: (id: string) => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
   onReorder: (order: string[]) => void;
@@ -173,6 +186,16 @@ export default function TabBar({
                         onClick={() => startRename(board)}
                       >
                         <PencilIcon />
+                      </button>
+                      <button
+                        type="button"
+                        className="tab-rename-button"
+                        aria-label={`Duplicate ${board.title}`}
+                        title="Duplicate this dashboard"
+                        disabled={busy}
+                        onClick={() => onDuplicate(board.id)}
+                      >
+                        <CopyIcon />
                       </button>
                       <button
                         type="button"

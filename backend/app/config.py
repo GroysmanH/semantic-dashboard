@@ -23,7 +23,11 @@ class Settings(BaseSettings):
     chat_sees_data: bool = False
     chat_max_rows: int = Field(default=2_000, gt=0)
     chat_max_context_chars: int = Field(default=60_000, gt=0)
-    chat_history_turns: int = Field(default=6, gt=0)
+    # Messages, not exchanges, so six was three turns of conversation --
+    # enough to lose a clarifying question and the answer to it inside one
+    # short back-and-forth. Twelve is six exchanges, and history is prose
+    # rather than queries, so it costs very little context.
+    chat_history_turns: int = Field(default=12, gt=0)
     chat_transient_ttl_seconds: int = Field(default=900, gt=0)
     chat_tombstone_days: int = Field(default=30, ge=1, le=30)
 

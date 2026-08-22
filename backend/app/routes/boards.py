@@ -46,6 +46,21 @@ def reorder_boards(body: ReorderIn):
         raise HTTPException(409, str(exc)) from exc
 
 
+@router.post("/{board_id}/duplicate")
+def duplicate_board(board_id: uuid.UUID, body: BoardIn | None = None):
+    """A copy, with its own cards. Nothing is shared with the original --
+    editing a card on one does not touch the other."""
+    source = store.get_board(board_id)
+    if source is None:
+        raise HTTPException(404, "no such board")
+    title = (body.title if body and body.title != BoardIn().title
+             else f"{source['title']} copy")
+    copy = store.duplicate_board(board_id, title)
+    if copy is None:
+        raise HTTPException(404, "no such board")
+    return copy
+
+
 @router.get("/{board_id}")
 def get_board(board_id: uuid.UUID):
     board = store.get_board(board_id)

@@ -94,7 +94,15 @@ export default function ExportMenu({
         onClick={() => setOpen((value) => !value)}
       >
         <span>Export</span>
-        <span className="export-chevron" aria-hidden="true">⌄</span>
+        {/* Drawn rather than typed. The "⌄" character is positioned by the
+            font's own metrics, which put it near the top of its em box, so
+            it hangs below the text it is supposed to sit beside. An SVG
+            sits where we put it, in every face. */}
+        <svg className="export-chevron" viewBox="0 0 10 10" aria-hidden="true">
+          <path d="M2 4l3 3 3-3" fill="none" stroke="currentColor"
+                strokeWidth="1.4" strokeLinecap="round"
+                strokeLinejoin="round" />
+        </svg>
       </button>
       {open && (
         <div

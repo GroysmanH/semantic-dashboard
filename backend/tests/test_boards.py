@@ -19,6 +19,9 @@ from app.db import app_pool
 from app.main import app
 from app.store import cards as store
 
+BY_REGION = {"entity": "production", "measures": ["oil"],
+             "dimensions": [{"field": "region"}]}
+
 
 @pytest.fixture
 def client():
@@ -333,3 +336,78 @@ def test_hard_card_delete_changes_membership_revision(client):
 def test_deletion_store_has_no_ambiguous_aliases():
     assert not hasattr(store, "delete_board")
     assert not hasattr(store, "delete_card")
+
+
+# -- duplication ---------------------------------------------------------
+
+def test_duplicating_copies_the_cards_and_their_layout(client):
+    board = client.post("/boards", json={"title": "Operations"}).json()
+    made = client.post(f"/boards/{board['id']}/cards").json()
+    store.update_card(uuid.UUID(made["id"]), title="Oil by region",
+                      semantic_query=BY_REGION, state="ready",
+                      layout={"x": 6, "y": 0, "w": 6, "h": 10})
+
+    copy = client.post(f"/boards/{board['id']}/duplicate").json()
+
+    cards = client.get(f"/boards/{copy['id']}").json()["cards"]
+    assert copy["title"] == "Operations copy"
+    assert [c["title"] for c in cards] == ["Oil by region"]
+    assert cards[0]["layout"] == {"x": 6, "y": 0, "w": 6, "h": 10}
+    assert cards[0]["semantic_query"] == BY_REGION
+
+
+def test_a_copy_shares_nothing_with_its_original(client):
+    """The point of a duplicate is somewhere to experiment. If editing one
+    changed the other it would be a second view of one dashboard, which is
+    what tabs already are."""
+    board = client.post("/boards", json={"title": "Operations"}).json()
+    made = client.post(f"/boards/{board['id']}/cards").json()
+    store.update_card(uuid.UUID(made["id"]), title="Original", state="ready")
+
+    copy = client.post(f"/boards/{board['id']}/duplicate").json()
+    copied = client.get(f"/boards/{copy['id']}").json()["cards"][0]
+    store.update_card(uuid.UUID(copied["id"]), title="Changed")
+
+    assert store.get_card(uuid.UUID(made["id"]))["title"] == "Original"
+    assert len(client.get(f"/boards/{board['id']}").json()["cards"]) == 1
+
+
+def test_a_copy_does_not_inherit_unfinished_business(client):
+    """`previous` and `pending_clarification` are one card's exchange with
+    one person. A duplicate that arrives mid-clarification, or that can
+    undo a step it never took, is confusing rather than faithful."""
+    board = client.post("/boards", json={"title": "Operations"}).json()
+    made = client.post(f"/boards/{board['id']}/cards").json()
+    store.update_card(uuid.UUID(made["id"]), title="Oil", state="ready",
+                      semantic_query=BY_REGION,
+                      previous={"semantic_query": BY_REGION},
+                      pending_clarification={"question": "Oil or gas?",
+                                             "asked": "production"})
+
+    copy = client.post(f"/boards/{board['id']}/duplicate").json()
+
+    copied = client.get(f"/boards/{copy['id']}").json()["cards"][0]
+    assert copied["previous"] is None
+    assert copied["pending_clarification"] is None
+
+
+def test_duplicating_an_empty_dashboard_gives_an_empty_one(client):
+    board = client.post("/boards", json={"title": "Blank"}).json()
+
+    copy = client.post(f"/boards/{board['id']}/duplicate").json()
+
+    assert client.get(f"/boards/{copy['id']}").json()["cards"] == []
+
+
+def test_a_duplicate_can_be_named(client):
+    board = client.post("/boards", json={"title": "Operations"}).json()
+
+    copy = client.post(f"/boards/{board['id']}/duplicate",
+                       json={"title": "Q3 experiment"}).json()
+
+    assert copy["title"] == "Q3 experiment"
+
+
+def test_duplicating_a_dashboard_that_is_gone_is_not_found(client):
+    assert client.post(
+        f"/boards/{uuid.uuid4()}/duplicate").status_code == 404

@@ -168,6 +168,7 @@ export default function Board({
   const [resizingCardId, setResizingCardId] = useState<string | null>(null);
   const [boardError, setBoardError] = useState<string | null>(null);
   const [width, setWidth] = useState(() => window.innerWidth - 40);
+  const areaRef = useRef<HTMLDivElement>(null);
   const cardNodes = useRef(new Map<string, HTMLDivElement>());
   const didDrag = useRef(false);
   const activeDrag = useRef<ActiveDrag | null>(null);
@@ -192,10 +193,29 @@ export default function Board({
     void load();
   }, [load]);
 
+  // Measured from the element, not the window. The two are not the same
+  // number the moment anything else takes horizontal space: pinning the
+  // assistant narrows this container by CSS alone, which fires no resize
+  // event, so the grid kept the full window width and laid the cards out
+  // underneath the panel. Dragging the panel's edge has the same problem
+  // and now reflows live.
   useEffect(() => {
-    const onResize = () => setWidth(window.innerWidth - 40);
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    const area = areaRef.current;
+    const fromWindow = () => setWidth(window.innerWidth - 40);
+    if (!area || typeof ResizeObserver === "undefined") {
+      fromWindow();
+      window.addEventListener("resize", fromWindow);
+      return () => window.removeEventListener("resize", fromWindow);
+    }
+    const observer = new ResizeObserver(([entry]) => {
+      // The padding is the board area's own; the grid gets what is left.
+      const style = getComputedStyle(entry.target as Element);
+      const inset = parseFloat(style.paddingLeft || "0")
+        + parseFloat(style.paddingRight || "0");
+      setWidth(Math.max(240, entry.contentRect.width + inset - 40));
+    });
+    observer.observe(area);
+    return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
@@ -386,7 +406,8 @@ export default function Board({
   }
 
   return (
-    <div className={`board-area ${layoutLocked ? "layout-locked" : ""}`}>
+    <div ref={areaRef}
+         className={`board-area ${layoutLocked ? "layout-locked" : ""}`}>
       {boardError && <p className="notice broken board-error">{boardError}</p>}
       {exportError && <p className="notice broken board-error">{exportError}</p>}
 

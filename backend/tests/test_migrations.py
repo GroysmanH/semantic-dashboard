@@ -895,7 +895,9 @@ def test_chat_configuration_defaults_are_privacy_preserving():
     assert fields["chat_sees_data"].default is False
     assert fields["chat_max_rows"].default == 2_000
     assert fields["chat_max_context_chars"].default == 60_000
-    assert fields["chat_history_turns"].default == 6
+    # Messages, not exchanges. Six was three turns, which loses a
+    # clarifying question and its answer inside one short back-and-forth.
+    assert fields["chat_history_turns"].default == 12
     assert fields["chat_transient_ttl_seconds"].default == 900
     assert fields["chat_tombstone_days"].default == 30
 

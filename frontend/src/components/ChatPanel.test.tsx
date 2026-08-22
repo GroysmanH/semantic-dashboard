@@ -104,24 +104,28 @@ describe("ChatPanel", () => {
     // A provider whose two tiers resolve to the same model id has no
     // escalation to offer, so "think harder" must not promise one.
     setup({ provider: "nvidia" });
-    expect(screen.getByLabelText(/think harder/i)).toBeDisabled();
+    expect(screen.getByRole("switch", { name: /think harder/i }))
+      .toBeDisabled();
   });
 
   it("offers escalation when the provider has two tiers", () => {
     setup({ provider: "anthropic" });
-    expect(screen.getByLabelText(/think harder/i)).toBeEnabled();
+    expect(screen.getByRole("switch", { name: /think harder/i }))
+      .toBeEnabled();
   });
 
   it("disables consent and says why when the server withholds it", () => {
     setup({ dataSharingPermitted: false });
-    const box = screen.getByLabelText(/disabled on the server/i);
+    const box = screen.getByRole("switch",
+                                 { name: /Reading the numbers is off/i });
     expect(box).toBeDisabled();
     expect(box).not.toBeChecked();
   });
 
   it("names the provider in the consent wording", () => {
     setup({ provider: "nvidia" });
-    expect(screen.getByLabelText(/NVIDIA \(free\) read the numbers/i))
+    expect(screen.getByRole("switch",
+                            { name: /NVIDIA \(free\) reads the numbers/i }))
       .toBeInTheDocument();
   });
 
@@ -138,24 +142,36 @@ describe("ChatPanel", () => {
 
   it("rotates the thread when the conversation is cleared", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.mocked(chatApi.clearThread).mockResolvedValue({ id: "t2" } as never);
     const props = setup();
 
     await user.click(screen.getByRole("button", { name: "Clear" }));
+    // The application's own dialog, not the browser's: it says what
+    // happens on the button rather than offering OK.
+    await user.click(await screen.findByRole("button", { name: "Clear it" }));
 
     await waitFor(() => expect(props.onThreadChange).toHaveBeenCalledWith("t2"));
   });
 
   it("keeps the conversation when clearing is declined", async () => {
     const user = userEvent.setup();
-    vi.spyOn(window, "confirm").mockReturnValue(false);
     const props = setup();
 
     await user.click(screen.getByRole("button", { name: "Clear" }));
+    await user.click(await screen.findByRole("button", { name: "Cancel" }));
 
     expect(chatApi.clearThread).not.toHaveBeenCalled();
     expect(props.onThreadChange).not.toHaveBeenCalled();
+  });
+
+  it("asks before clearing rather than clearing and telling you", async () => {
+    const user = userEvent.setup();
+    setup();
+
+    await user.click(screen.getByRole("button", { name: "Clear" }));
+
+    expect(await screen.findByRole("dialog")).toBeVisible();
+    expect(chatApi.clearThread).not.toHaveBeenCalled();
   });
 
   it("toggles pinning without touching any layout", async () => {
