@@ -362,26 +362,43 @@ def _reorder_dashboards(action, *, boards: list[dict]) -> Resolved:
 
 
 def _delete_card(action, *, boards: list[dict]) -> Resolved:
-    card = store.get_card(action.card_id)
-    if card is None:
-        raise PlanRefused("That card has already gone.")
-    board = next((b for b in boards if b["id"] == card["board_id"]), None)
-    if board is None:
-        raise PlanRefused("That card's dashboard is not available.")
+    """One removal or many, previewed a line at a time.
+
+    A card that has already gone is dropped from the plan rather than
+    failing it: the preview has to describe what will actually happen, and
+    nothing will happen to a card that is not there. Only if none of them
+    are left is there nothing to confirm.
+    """
+    by_board = {b["id"]: b for b in boards}
+    targets, board = [], None
+    for card_id in dict.fromkeys(action.card_ids):
+        card = store.get_card(card_id)
+        if card is None or card["board_id"] not in by_board:
+            continue
+        board = board or by_board[card["board_id"]]
+        targets.append(card)
+
+    if not targets:
+        raise PlanRefused("Those cards have already gone.")
+
     return Resolved(
         kind="delete_card", say=action.say,
         resolved={"kind": "delete_card", "board_id": str(board["id"]),
                   "board_title": board["title"],
-                  "card_id": str(card["id"]),
-                  "card_title": card.get("title") or ""},
+                  "card_ids": [str(c["id"]) for c in targets],
+                  "card_titles": [c.get("title") or "" for c in targets]},
         basis={},
-        operations=[PlanOperation(
-            kind="delete_card",
-            summary=f"Remove “{card.get('title') or 'this card'}” from "
-                    f"{board['title']}",
-            board_id=board["id"], board_title=board["title"],
-            card_id=card["id"], card_title=card.get("title") or "",
-            before=card.get("title") or "")],
+        operations=[
+            PlanOperation(
+                kind="delete_card",
+                summary=f"Remove “{card.get('title') or 'this card'}” from "
+                        f"{by_board[card['board_id']]['title']}",
+                board_id=card["board_id"],
+                board_title=by_board[card["board_id"]]["title"],
+                card_id=card["id"], card_title=card.get("title") or "",
+                before=card.get("title") or "")
+            for card in targets
+        ],
         target_board_id=board["id"], target_board_title=board["title"],
     )
 
@@ -523,13 +540,16 @@ def apply_immediate(resolved: dict) -> Applied:
                              "left": [str(b) for b in order]})
 
     if kind == "delete_card":
-        card_id = uuid.UUID(resolved["card_id"])
-        if store.soft_delete_card(card_id) is None:
-            raise PlanRefused("That card has already gone.")
-        return Applied(summary=f"Removed “{resolved['card_title']}”.",
+        removed = [c for c in resolved["card_ids"]
+                   if store.soft_delete_card(uuid.UUID(c)) is not None]
+        if not removed:
+            raise PlanRefused("Those cards have already gone.")
+        titles = resolved.get("card_titles") or []
+        summary = (f"Removed “{titles[0]}”." if len(removed) == 1 and titles
+                   else f"Removed {len(removed)} cards.")
+        return Applied(summary=summary,
                        board_id=uuid.UUID(resolved["board_id"]),
-                       undo={"kind": "restore_card",
-                             "card_id": str(card_id)})
+                       undo={"kind": "restore_cards", "card_ids": removed})
 
     if kind == "delete_dashboard":
         board_id = uuid.UUID(resolved["board_id"])
@@ -692,10 +712,13 @@ def reverse(undo: dict) -> str:
         store.save_layouts(board_id, undo["was"])
         return "Put the cards back."
 
-    if kind == "restore_card":
-        if store.restore_card(uuid.UUID(undo["card_id"])) is None:
-            raise UndoRefused("That card is already back.")
-        return "Put the card back."
+    if kind == "restore_cards":
+        back = sum(1 for c in undo["card_ids"]
+                   if store.restore_card(uuid.UUID(c)) is not None)
+        if not back:
+            raise UndoRefused("Those cards are already back.")
+        return (f"Put the card back." if back == 1
+                else f"Put {back} cards back.")
 
     if kind == "restore_dashboard":
         if store.restore_board(uuid.UUID(undo["board_id"])) is None:

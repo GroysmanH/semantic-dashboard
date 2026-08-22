@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { RefObject } from "react";
 
 /** The input, shared by an empty card and a ready one.
  *
@@ -9,11 +10,15 @@ export default function AskBar({
   placeholder,
   submitLabel,
   busy,
+  inputRef,
   onSubmit,
 }: {
   placeholder: string;
   submitLabel: string;
   busy: boolean;
+  /** Lets a caller put the caret here when its surface opens. Optional,
+   *  because on a card the input is already where the eye is. */
+  inputRef?: RefObject<HTMLInputElement>;
   onSubmit: (text: string) => void;
 }) {
   const [text, setText] = useState("");
@@ -29,6 +34,7 @@ export default function AskBar({
       }}
     >
       <input
+        ref={inputRef}
         value={text}
         onChange={(e) => setText(e.target.value)}
         placeholder={placeholder}

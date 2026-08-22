@@ -189,7 +189,7 @@ def test_the_detail_call_is_told_which_kind_it_is_detailing(thread, board):
 
 @pytest.mark.parametrize("kind,detail", [
     ("delete_card", {"action": "delete_card", "say": "",
-                     "card_id": str(uuid.uuid4())}),
+                     "card_ids": [str(uuid.uuid4())]}),
     ("delete_dashboard", {"action": "delete_dashboard", "say": "",
                           "board_id": str(uuid.uuid4())}),
     ("rename_dashboard", {"action": "rename_dashboard", "say": "",

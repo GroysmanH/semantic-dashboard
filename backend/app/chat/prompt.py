@@ -49,7 +49,7 @@ which one of these it is:
     layout           move or resize cards
     rename_dashboard  change a dashboard's name
     reorder_dashboards  change the tab order
-    delete_card      remove a card
+    delete_card      remove one card, several, or all of them
     delete_dashboard  remove a dashboard
 
 You will be asked for the details of a task separately, so `say` is the \
@@ -182,8 +182,11 @@ DETAIL_INSTRUCTIONS = {
         "not a reorder and will be rejected."
     ),
     "delete_card": (
-        "Return the id of the card to remove. Removal is reversible and "
-        "the person still has to confirm it."
+        "Return the ids of the cards to remove — one id, or every id on the "
+        "dashboard if that is what was asked for. Clearing a dashboard "
+        "removes its cards and keeps the dashboard; use delete_dashboard "
+        "only when the tab itself should go. Removal is reversible and the "
+        "person still has to confirm it."
     ),
     "delete_dashboard": (
         "Return the id of the dashboard to remove. Removal is reversible, "

@@ -41,6 +41,7 @@ export default function ChatPanel({
   activeBoardId,
   activeBoardTitle,
   boards,
+  examples,
   provider,
   providers,
   capabilities,
@@ -63,6 +64,10 @@ export default function ChatPanel({
   activeBoardId: string | null;
   activeBoardTitle: string;
   boards: BoardSummary[];
+  /** Questions the layer can actually answer, from GET /layer. An empty
+   *  assistant that says "ask me anything" is asking the person to guess
+   *  the vocabulary; three real examples teach it in one glance. */
+  examples: string[];
   provider: Provider;
   providers: Provider[];
   capabilities: Record<string, ProviderCapability>;
@@ -89,6 +94,8 @@ export default function ChatPanel({
   const [plan, setPlan] = useState<PendingPlanView | null>(null);
   const [action, setAction] = useState<ActionProgressView | null>(null);
   const listRef = useRef<HTMLUListElement>(null);
+  const drawerRef = useRef<HTMLElement>(null);
+  const composerRef = useRef<HTMLInputElement>(null);
 
   const strong = capabilities[provider]?.strong_available ?? false;
 
@@ -272,6 +279,30 @@ export default function ChatPanel({
     };
   }, [action, onApplied]);
 
+  // Off-screen is not the same as gone. Without this the closed panel
+  // keeps every button in the transcript in the tab order, past the right
+  // edge where nobody can see what they just focused. `inert` is set on the
+  // node rather than as a prop because React 18 does not pass it through.
+  useEffect(() => {
+    const drawer = drawerRef.current;
+    if (drawer) drawer.inert = !open;
+  }, [open]);
+
+  // Opening a panel to ask something and then having to click into it is
+  // the sort of thing that makes a keyboard shortcut not worth using.
+  useEffect(() => {
+    if (open) composerRef.current?.focus();
+  }, [open]);
+
+  // Escape closes, from anywhere inside. Standard for a dismissible panel,
+  // and the alternative is hunting for a small × in the corner.
+  const onKeyDown = (event: React.KeyboardEvent) => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      onClose();
+    }
+  };
+
   // Dragging the edge. Width is a preference, never part of a board's
   // saved layout: pinning must not move anybody's cards.
   const startResize = useCallback((event: React.PointerEvent) => {
@@ -288,13 +319,16 @@ export default function ChatPanel({
     window.addEventListener("pointerup", stop);
   }, [onWidthChange]);
 
-  if (!open) return null;
-
   return (
     <aside
+      ref={drawerRef}
+      id="assistant-drawer"
       className={pinned ? "chat-drawer pinned" : "chat-drawer"}
       style={{ width }}
+      data-open={open}
+      aria-hidden={!open}
       aria-label="Assistant"
+      onKeyDown={onKeyDown}
     >
       <div
         className="chat-resize"
@@ -321,10 +355,32 @@ export default function ChatPanel({
         Looking at <b>{activeBoardTitle || "no dashboard"}</b>
       </p>
 
-      <ul className="chat-log" ref={listRef}>
+      {/* Polite, not assertive: an answer arriving is worth hearing about
+          and is never urgent enough to cut across what is being read. */}
+      <ul className="chat-log" ref={listRef} aria-live="polite"
+          aria-busy={busy}>
         {messages.length === 0 && (
           <li className="chat-turn chat-empty">
             <p>Ask about the charts on screen, or ask for a new one.</p>
+            {examples.length > 0 && (
+              <>
+                <p className="eyebrow">Try one of these</p>
+                <ul className="chat-examples">
+                  {examples.slice(0, 3).map((example) => (
+                    <li key={example}>
+                      <button
+                        type="button"
+                        className="chip"
+                        disabled={busy || !activeBoardId}
+                        onClick={() => void send(example)}
+                      >
+                        {example}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
           </li>
         )}
         {messages.map((message) => (
@@ -367,6 +423,7 @@ export default function ChatPanel({
           placeholder="Ask about this dashboard…"
           submitLabel="Send"
           busy={busy || !activeBoardId}
+          inputRef={composerRef}
           onSubmit={send}
         />
 

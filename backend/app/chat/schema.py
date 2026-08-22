@@ -226,9 +226,17 @@ class ReorderDashboardsAction(StrictModel):
 
 
 class DeleteCardAction(StrictModel):
+    """One removal or many.
+
+    A list rather than a single id because "clear this dashboard" is an
+    ordinary thing to ask and a one-card contract cannot express it. The
+    model would either remove one card and report success, or be forced
+    into a dashboard deletion, which is a different and larger thing.
+    """
+
     action: Literal["delete_card"] = "delete_card"
     say: str = Field(default="", max_length=2000)
-    card_id: UUID
+    card_ids: list[UUID] = Field(min_length=1, max_length=24)
 
 
 class DeleteDashboardAction(StrictModel):

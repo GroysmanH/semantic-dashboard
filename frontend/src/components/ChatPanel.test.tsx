@@ -34,6 +34,7 @@ function setup(over: Partial<Parameters<typeof ChatPanel>[0]> = {}) {
     activeBoardId: "b1",
     activeBoardTitle: "Operations",
     boards: [{ id: "b1", title: "Operations", position: 0 }],
+    examples: ["oil production by region", "downtime by month"],
     provider: "anthropic" as const,
     providers: ["anthropic" as const, "nvidia" as const],
     capabilities: CAPABILITIES,
@@ -63,9 +64,15 @@ beforeEach(() => {
 });
 
 describe("ChatPanel", () => {
-  it("renders nothing while closed", () => {
+  it("stays mounted while closed but out of reach", () => {
+    // It slides away rather than unmounting, so the panel keeps its scroll
+    // position and its in-flight requests. Being off-screen is not enough:
+    // a hidden transcript full of focusable buttons is a tab trap nobody
+    // can see, so it leaves the accessibility tree as well.
     setup({ open: false });
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
+    expect(document.querySelector(".chat-drawer")).toHaveAttribute(
+      "data-open", "false");
   });
 
   it("says which dashboard it is looking at", async () => {
@@ -195,7 +202,10 @@ describe("ChatPanel", () => {
 
     expect(await screen.findByText(/Rename “Operations” to “Wells”/))
       .toBeVisible();
-    expect(screen.getByRole("button", { name: "Apply" })).toBeEnabled();
+    // The button says what it does. "Apply" is the same word for adding a
+    // card and for clearing a dashboard, which is how a confirmation stops
+    // being read.
+    expect(screen.getByRole("button", { name: "Rename it" })).toBeEnabled();
   });
 
   it("applies only what was shown, and tells the app to reload", async () => {
@@ -208,7 +218,7 @@ describe("ChatPanel", () => {
         board_id: "b1", action: null } as never);
     const props = setup();
 
-    await user.click(await screen.findByRole("button", { name: "Apply" }));
+    await user.click(await screen.findByRole("button", { name: "Rename it" }));
 
     expect(chatApi.confirmPlan).toHaveBeenCalledWith("p1", {
       provider: "anthropic", hard: false });
@@ -320,5 +330,43 @@ describe("ChatPanel", () => {
 
     expect(await screen.findByText(/changed again after that/)).toBeVisible();
     expect(props.onApplied).not.toHaveBeenCalled();
+  });
+
+  // -- opening and closing ----------------------------------------------
+
+  it("puts the caret in the composer when it opens", async () => {
+    setup();
+    await waitFor(() =>
+      expect(screen.getByLabelText("Ask about this dashboard…"))
+        .toHaveFocus());
+  });
+
+  it("closes on Escape from anywhere inside", async () => {
+    const user = userEvent.setup();
+    const props = setup();
+
+    await user.keyboard("{Escape}");
+
+    expect(props.onClose).toHaveBeenCalled();
+  });
+
+  it("marks a plan that removes things and says so on the button", async () => {
+    vi.mocked(chatApi.getThread).mockResolvedValue({
+      id: "t1", messages: [],
+      pending_plan: {
+        ...PLAN,
+        action: "delete_card",
+        say: "I will clear this dashboard.",
+        operations: [
+          { kind: "delete_card", summary: "Remove “One” from Operations" },
+          { kind: "delete_card", summary: "Remove “Two” from Operations" },
+        ],
+      },
+    } as never);
+    setup();
+
+    const apply = await screen.findByRole("button", { name: "Remove 2 cards" });
+    expect(apply).toHaveClass("danger");
+    expect(document.querySelector(".chat-plan")).toHaveClass("removes");
   });
 });

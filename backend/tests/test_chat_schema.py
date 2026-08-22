@@ -48,7 +48,7 @@ VALID = [
         {"card_id": CARD, "layout": {"x": 0, "y": 0, "w": 6, "h": 10}}]},
     {"action": "rename_dashboard", "board_id": BOARD, "title": "Drilling"},
     {"action": "reorder_dashboards", "order": [BOARD]},
-    {"action": "delete_card", "card_id": CARD},
+    {"action": "delete_card", "card_ids": [CARD]},
     {"action": "delete_dashboard", "board_id": BOARD},
 ]
 

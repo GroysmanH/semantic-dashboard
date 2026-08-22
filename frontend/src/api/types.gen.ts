@@ -498,7 +498,11 @@ export type Action9 = "reorder_dashboards";
 export type Order = [string, ...string[]];
 export type Say7 = string;
 export type Action10 = "delete_card";
-export type CardId3 = string;
+/**
+ * @minItems 1
+ * @maxItems 24
+ */
+export type CardIds = [string, ...string[]];
 export type Say8 = string;
 export type Action11 = "delete_dashboard";
 export type BoardId1 = string;
@@ -524,7 +528,7 @@ export type ActionId2 = string;
 export type Id2 = number;
 export type Kind2 = "card";
 export type BoardId3 = string;
-export type CardId4 = string;
+export type CardId3 = string;
 export type RequestId3 = string;
 export type Version2 = 1;
 export type ActionId3 = string;
@@ -554,7 +558,7 @@ export type After = string | null;
 export type Before = string | null;
 export type BoardId4 = string | null;
 export type BoardTitle1 = string;
-export type CardId5 = string | null;
+export type CardId4 = string | null;
 export type CardTitle = string;
 export type Kind6 =
   | "create_card"
@@ -585,7 +589,7 @@ export type ActiveBoardId = string | null;
 export type ActiveBoardTitle = string;
 export type DisplayedValue1 = string;
 export type BoardId7 = string;
-export type CardId6 = string;
+export type CardId5 = string;
 export type CardTitle1 = string;
 export type Sources = SourceRef[];
 export type Text1 = string;
@@ -871,9 +875,17 @@ export interface ReorderDashboardsAction {
   order: Order;
   say?: Say7;
 }
+/**
+ * One removal or many.
+ *
+ * A list rather than a single id because "clear this dashboard" is an
+ * ordinary thing to ask and a one-card contract cannot express it. The
+ * model would either remove one card and report success, or be forced
+ * into a dashboard deletion, which is a different and larger thing.
+ */
 export interface DeleteCardAction {
   action?: Action10;
-  card_id: CardId3;
+  card_ids: CardIds;
   say?: Say8;
 }
 /**
@@ -930,7 +942,7 @@ export interface CardEvent {
 }
 export interface CardEventPayload {
   board_id: BoardId3;
-  card_id: CardId4;
+  card_id: CardId3;
   request_id: RequestId3;
 }
 export interface ItemFailedEvent {
@@ -993,7 +1005,7 @@ export interface PlanOperation {
   before?: Before;
   board_id?: BoardId4;
   board_title?: BoardTitle1;
-  card_id?: CardId5;
+  card_id?: CardId4;
   card_title?: CardTitle;
   kind: Kind6;
   summary: Summary;
@@ -1046,7 +1058,7 @@ export interface VerifiedClaimView {
  */
 export interface SourceRef {
   board_id: BoardId7;
-  card_id: CardId6;
+  card_id: CardId5;
   card_title: CardTitle1;
 }
 export interface ChatThreadView {

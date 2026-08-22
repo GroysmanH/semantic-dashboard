@@ -269,7 +269,7 @@ def test_removing_a_card_counts_what_goes(board, boards):
     card = a_card(board)
 
     out = planner.resolve("delete_card",
-                          DeleteCardAction(card_id=card["id"]),
+                          DeleteCardAction(card_ids=[card["id"]]),
                           board=board, boards=boards, cards=cards_of(board),
                           client=FakeAsk())
 

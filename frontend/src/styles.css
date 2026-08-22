@@ -1,27 +1,62 @@
+/* KazMunayGas reads blue: a deep corporate navy-blue carrying the weight,
+   a bright emblem cyan used sparingly, on cool paper rather than warm.
+   These are matched to that identity by eye, not copied from a brand book
+   nobody here has — so they are tokens, and changing them is one edit.
+
+   One colour is load-bearing (--accent) and everything else is ink, rule or
+   surface. That is deliberate: on a page whose whole job is charts, an
+   interface that also uses colour to mean things competes with the data. */
 :root {
   color-scheme: light;
-  --ground: #edf0ec;
+  --ground: #e9eef4;
   --surface: #ffffff;
-  --surface-2: #f6f8f5;
+  --surface-2: #f3f7fb;
   --surface-raised: #ffffff;
-  --ink: #16201c;
-  --ink-soft: #5a6660;
-  --ink-faint: #8b968f;
-  --rule: #cdd6ce;
-  --rule-soft: #e3e9e3;
-  --accent: #1f6f63;
-  --accent-soft: #dcece8;
-  --signal: #b4611a;
-  --alarm: #9a3412;
-  --chart-blue: #4f7fae;
-  --chart-purple: #7463a5;
-  --chart-olive: #87923d;
-  --chart-rose: #a75468;
-  --shadow: 0 8px 28px rgb(22 32 28 / 10%);
+  --ink: #0d1f35;
+  --ink-soft: #51637a;
+  /* Darkened from the old value until 10px mono labels clear 4.5:1 on
+     every surface they sit on, ground included. An eyebrow nobody can read
+     is decoration with a word in it. */
+  --ink-faint: #5a6c80;
+  --rule: #c9d5e2;
+  --rule-soft: #e2eaf2;
+  --accent: #00539b;
+  --accent-deep: #003a6f;
+  --accent-soft: #dceaf7;
+  /* The emblem cyan. Marks and rules only, never text: it is 3.3:1 on
+     white, which is enough to see and not enough to read. */
+  --bright: #00a0df;
+  /* Warning amber, dark enough to be read as text -- it is used for
+     "stale" and for the refusal rail, not only for a chart mark. */
+  --signal: #9c5c00;
+  --alarm: #a32020;
+  --alarm-soft: #fbeaea;
+  /* Anchored on the accent so a chart belongs to the page, then spread far
+     enough apart to survive being printed, projected, or read by someone
+     who cannot separate red from green. Blue against amber is the safest
+     axis there is; the two blues differ in lightness as well as hue. */
+  --chart-blue: #00539b;
+  --chart-cyan: #00a0df;
+  --chart-amber: #c08427;
+  --chart-plum: #8e5572;
+  --shadow: 0 10px 34px rgb(13 31 53 / 12%);
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Roboto Mono", Menlo, monospace;
   --sans: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
   --r: 4px;
   --motion: 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-ms: 220ms;
+}
+
+/* Motion here is orientation -- where a panel came from, which card moved.
+   Someone who has asked for less of it still needs the orientation, so the
+   states stay and only the travel between them goes. */
+@media (prefers-reduced-motion: reduce) {
+  :root { --motion: 1ms linear; --motion-ms: 1ms; }
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 * { box-sizing: border-box; }
@@ -256,6 +291,16 @@ body {
   background: var(--accent-soft);
 }
 
+/* The panel is always mounted and slides out of the way, rather than being
+   torn down and rebuilt. Two reasons, and only one of them is the
+   animation: a drawer that appears has no direction, so nothing tells you
+   where it went or where to look for it again. The other is that an
+   unmounted panel loses its scroll position and its in-flight requests
+   every time somebody glances at a chart.
+
+   Closed, it is pushed off-screen *and* taken out of the accessibility
+   tree. Sliding alone would leave a transcript full of focusable buttons
+   sitting past the right edge, reachable by Tab and invisible. */
 .chat-drawer {
   position: fixed;
   top: 0;
@@ -267,6 +312,15 @@ body {
   background: var(--surface);
   border-left: 1px solid var(--rule);
   box-shadow: var(--shadow);
+  transform: translateX(0);
+  transition: transform var(--motion), visibility 0s;
+}
+.chat-drawer[data-open="false"] {
+  transform: translateX(100%);
+  visibility: hidden;
+  /* Held visible for the length of the slide, or it vanishes and then
+     animates something nobody can see. */
+  transition: transform var(--motion), visibility 0s linear var(--motion-ms);
 }
 /* Pinned only removes the shadow: the workspace margin is what actually
    makes room, and that is CSS, never a saved layout. */
@@ -281,6 +335,8 @@ body {
   cursor: col-resize;
 }
 .chat-resize:hover { background: var(--accent-soft); }
+/* No handle to grab while the panel is off-screen. */
+.chat-drawer[data-open="false"] .chat-resize { pointer-events: none; }
 
 .chat-head {
   display: flex;
@@ -315,6 +371,59 @@ body {
 .chat-assistant.chat-refuse { border-left: 2px solid var(--signal); padding-left: 0.6rem; }
 .chat-assistant.chat-clarify { border-left: 2px solid var(--accent); padding-left: 0.6rem; }
 .chat-empty p { color: var(--ink-faint); }
+.chat-empty .eyebrow { display: block; margin: 1rem 0 0.4rem; }
+
+/* Real questions rather than a prompt to invent one. They are buttons
+   because reading them and asking them should be the same gesture. */
+.chat-examples {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.chat-examples .chip {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  background: var(--surface-2);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--motion), border-color var(--motion),
+              background var(--motion);
+}
+.chat-examples .chip:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* One control, stated once, rather than four radios competing with the
+   question box next to them. */
+.provider-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+.provider-picker select {
+  padding: 0.2rem 0.35rem;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  font: inherit;
+  font-size: 12px;
+}
+.provider-picker select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 
 /* A change waiting to be authorised. Boxed and rules-first rather than
    coloured in: this is a document to read, and the one moment in the panel
@@ -346,6 +455,21 @@ body {
 }
 .plan-diff s { color: var(--ink-faint); }
 .plan-actions { display: flex; gap: 0.4rem; }
+
+/* A plan that removes things is the one whose preview most needs reading,
+   so it is the one place the interface spends a second colour. */
+.chat-plan.removes { border-color: var(--alarm); background: var(--alarm-soft); }
+.chat-plan.removes .eyebrow { color: var(--alarm); }
+.plan-ops .op-removes .plan-op { color: var(--alarm); }
+button.danger {
+  background: var(--alarm);
+  border-color: var(--alarm);
+  color: #fff;
+}
+button.danger:hover:not(:disabled) {
+  filter: brightness(1.08);
+  background: var(--alarm);
+}
 
 .chat-progress { font-size: 13px; }
 .progress-rail {

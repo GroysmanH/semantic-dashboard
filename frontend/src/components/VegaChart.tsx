@@ -10,13 +10,13 @@ function token(styles: CSSStyleDeclaration, name: string, fallback: string): str
 function useChartConfig() {
   return useMemo(() => {
     const styles = getComputedStyle(document.documentElement);
-    const ink = token(styles, "--ink", "#16201c");
-    const soft = token(styles, "--ink-soft", "#5a6660");
-    const faint = token(styles, "--ink-faint", "#8b968f");
-    const rule = token(styles, "--rule", "#cdd6ce");
-    const ruleSoft = token(styles, "--rule-soft", "#e3e9e3");
-    const accent = token(styles, "--accent", "#1f6f63");
-    const signal = token(styles, "--signal", "#b4611a");
+    const ink = token(styles, "--ink", "#0d1f35");
+    const soft = token(styles, "--ink-soft", "#51637a");
+    const faint = token(styles, "--ink-faint", "#5a6c80");
+    const rule = token(styles, "--rule", "#c9d5e2");
+    const ruleSoft = token(styles, "--rule-soft", "#e2eaf2");
+    const accent = token(styles, "--accent", "#00539b");
+    const signal = token(styles, "--signal", "#9c5c00");
 
     return {
       background: "transparent",
@@ -49,6 +49,9 @@ function useChartConfig() {
         labelLimit: 150,
         offset: 8,
       },
+      // A chart with one series takes the page's own colour rather than
+      // Vega's default steel blue, which belongs to no palette here.
+      mark: { color: accent },
       line: { strokeWidth: 2.2 },
       area: { opacity: 0.18 },
       bar: { cornerRadiusEnd: 2 },
@@ -57,21 +60,26 @@ function useChartConfig() {
       geoshape: { fill: ruleSoft, stroke: rule },
       view: { stroke: null },
       range: {
+        // The first four are the palette's own series tokens, so a chart
+        // is coloured out of the same box as the rest of the page. Past
+        // four categories nobody is reading a legend anyway, and the tail
+        // exists only so a fifth series is not black.
         category: [
-          accent,
-          signal,
-          token(styles, "--chart-blue", "#4f7fae"),
-          token(styles, "--chart-purple", "#7463a5"),
-          token(styles, "--chart-olive", "#87923d"),
-          token(styles, "--chart-rose", "#a75468"),
-          "#2f6f9f",
-          "#9a5d22",
-          "#567a3a",
-          "#8b4f83",
+          token(styles, "--chart-blue", "#00539b"),
+          token(styles, "--chart-amber", "#c08427"),
+          token(styles, "--chart-cyan", "#00a0df"),
+          token(styles, "--chart-plum", "#8e5572"),
+          "#2f7a6b",
+          "#8a5a2b",
+          "#4a6fa5",
+          "#7a4f8b",
           "#3b7f7a",
           "#9a4f4f",
         ],
-        heatmap: { scheme: "teals" },
+        heatmap: { scheme: "blues" },
+        // Diverging series read against the accent rather than beside it,
+        // so "below target" is the one warm thing on the page.
+        diverging: [signal, "#e8d9c0", accent],
       },
       text: { color: ink },
     };

@@ -144,8 +144,15 @@ describe("VegaChart presentation sizing", () => {
     );
 
     expect(matchMedia).not.toHaveBeenCalled();
-    const config = captured.spec.config as { range: { category: string[] } };
-    expect(config.range.category).toHaveLength(12);
+    const config = captured.spec.config as {
+      range: { category: string[]; heatmap: { scheme: string } };
+    };
+    // The series come out of the page's own palette, so a chart cannot end
+    // up coloured by something the rest of the interface has never heard
+    // of -- and cannot quietly follow the operating system instead.
+    expect(config.range.category[0]).toBe("#00539b");
+    expect(config.range.category.length).toBeGreaterThanOrEqual(8);
+    expect(config.range.heatmap.scheme).toBe("blues");
   });
 
   it("never asks a narrow card to render a wider unit chart", async () => {

@@ -106,9 +106,15 @@ export default function App() {
     prefs.setProvider(p);
   };
 
+  const chatToggleRef = useRef<HTMLButtonElement>(null);
+
   const toggleChat = useCallback(() => {
     setChatOpen((wasOpen) => {
       prefs.setOpen(!wasOpen);
+      // Closing sends focus back where it came from. Without this it lands
+      // on <body> and the next Tab starts from the top of the page, which
+      // is how a keyboard user loses their place.
+      if (wasOpen) chatToggleRef.current?.focus();
       return !wasOpen;
     });
   }, []);
@@ -219,9 +225,11 @@ export default function App() {
         <div id="board-export-action" className="masthead-action" />
         {gates.enabled && (
           <button
+            ref={chatToggleRef}
             type="button"
             className="chat-toggle"
-            aria-pressed={chatOpen}
+            aria-expanded={chatOpen}
+            aria-controls="assistant-drawer"
             title="Show or hide the assistant (Ctrl/Cmd + Shift + A)"
             onClick={toggleChat}
           >
@@ -269,6 +277,7 @@ export default function App() {
           activeBoardId={boardId}
           activeBoardTitle={boards.find((b) => b.id === boardId)?.title ?? ""}
           boards={boards}
+          examples={examples}
           provider={provider}
           providers={providers.available}
           capabilities={providers.capabilities ?? {}}

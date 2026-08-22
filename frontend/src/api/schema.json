@@ -587,6 +587,7 @@
     },
     "DeleteCardAction": {
       "additionalProperties": false,
+      "description": "One removal or many.\n\nA list rather than a single id because \"clear this dashboard\" is an\nordinary thing to ask and a one-card contract cannot express it. The\nmodel would either remove one card and report success, or be forced\ninto a dashboard deletion, which is a different and larger thing.",
       "properties": {
         "action": {
           "const": "delete_card",
@@ -594,10 +595,15 @@
           "title": "Action",
           "type": "string"
         },
-        "card_id": {
-          "format": "uuid",
-          "title": "Card Id",
-          "type": "string"
+        "card_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "maxItems": 24,
+          "minItems": 1,
+          "title": "Card Ids",
+          "type": "array"
         },
         "say": {
           "default": "",
@@ -607,7 +613,7 @@
         }
       },
       "required": [
-        "card_id"
+        "card_ids"
       ],
       "title": "DeleteCardAction",
       "type": "object"

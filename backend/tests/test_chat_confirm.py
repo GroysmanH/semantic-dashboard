@@ -223,7 +223,8 @@ def test_removing_a_card_goes_through_the_same_gate(client, thread, board,
                                                     fake):
     card = a_card(board)
     fake(task("delete_card"),
-         {"action": "delete_card", "say": "", "card_id": str(card["id"])})
+         {"action": "delete_card", "say": "",
+          "card_ids": [str(card["id"])]})
     plan = turn(client, thread, board).json()["pending_plan"]
     assert store.get_card(card["id"]) is not None
 
@@ -426,7 +427,7 @@ def test_a_removed_card_comes_back(client, thread, board, fake):
     card = a_card(board)
     out = apply_a(client, thread, board, fake, "delete_card",
                   {"action": "delete_card", "say": "",
-                   "card_id": str(card["id"])})
+                   "card_ids": [str(card["id"])]})
     assert store.get_card(card["id"]) is None
 
     client.post(f"/chat/actions/{out['message']['action_id']}/undo")
@@ -524,3 +525,60 @@ def test_the_undo_route_is_absent_while_chat_is_disabled(client, monkeypatch):
     monkeypatch.setattr(settings, "chat_enabled", False)
     assert client.post(
         f"/chat/actions/{uuid.uuid4()}/undo").status_code == 404
+
+
+def test_clearing_a_dashboard_removes_every_card_in_one_change(client, thread,
+                                                               board, fake):
+    """"Delete all the cards" is an ordinary request, and a one-card
+    contract cannot express it: the turn removes one, reports success, and
+    the person has to ask three more times."""
+    cards = [a_card(board, title=f"Card {n}") for n in range(3)]
+    out = apply_a(client, thread, board, fake, "delete_card",
+                  {"action": "delete_card", "say": "",
+                   "card_ids": [str(c["id"]) for c in cards]})
+
+    assert store.list_cards(board["id"]) == []
+    assert out["message"]["say"] == "Removed 3 cards."
+
+    client.post(f"/chat/actions/{out['message']['action_id']}/undo")
+
+    assert len(store.list_cards(board["id"])) == 3
+
+
+def test_clearing_a_dashboard_keeps_the_dashboard(client, thread, board, fake):
+    a_card(board)
+    out = apply_a(client, thread, board, fake, "delete_card",
+                  {"action": "delete_card", "say": "",
+                   "card_ids": [str(c["id"])
+                                for c in store.list_cards(board["id"])]})
+
+    assert out["message"]["action"] == "applied"
+    assert store.get_board(board["id"]) is not None
+
+
+def test_a_card_that_went_first_does_not_fail_the_rest(client, thread, board,
+                                                       fake):
+    """The preview describes what will actually happen, and nothing will
+    happen to a card that is not there any more."""
+    alive = a_card(board, title="Alive")
+    gone = a_card(board, title="Gone")
+    store.soft_delete_card(gone["id"])
+
+    out = apply_a(client, thread, board, fake, "delete_card",
+                  {"action": "delete_card", "say": "",
+                   "card_ids": [str(gone["id"]), str(alive["id"])]})
+
+    assert len(out["message"]["say"]) > 0
+    assert store.get_card(alive["id"]) is None
+
+
+def test_every_card_gets_its_own_preview_line(client, thread, board, fake):
+    cards = [a_card(board, title=f"Card {n}") for n in range(3)]
+    fake(task("delete_card"),
+         {"action": "delete_card", "say": "",
+          "card_ids": [str(c["id"]) for c in cards]})
+
+    plan = turn(client, thread, board).json()["pending_plan"]
+
+    assert len(plan["operations"]) == 3
+    assert all("Card" in o["summary"] for o in plan["operations"])
