@@ -15,6 +15,10 @@ dist/
 # Env / secrets
 .env
 .env.local
+# Any .env variant: a backup made during a config change is still a
+# file with live credentials in it.
+.env.*
+!.env.example
 
 # OS
 .DS_Store
