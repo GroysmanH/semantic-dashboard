@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# Env / secrets
+.env
+.env.local
+
+# OS
+.DS_Store
+
+# Playwright MCP artifacts
+.playwright-mcp/
+
+# Superpowers execution ledgers and review packages
+.superpowers/
+
+# Schema profiles: catalogue plus column statistics, which include real
+# values from most_common_vals. Never committed.
+scripts/*.md
+!scripts/README.md

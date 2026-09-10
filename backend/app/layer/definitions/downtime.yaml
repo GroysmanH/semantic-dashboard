@@ -1,0 +1,107 @@
+entity: downtime
+label: Downtime Events
+table: ddh.fct_downtime_events
+description: One row per synthetic well downtime event.
+time_column: event_start
+
+joins:
+  wells:
+    to: ddh.dim_wells
+    condition: wells.well_id = fct_downtime_events.well_id
+    confidence: high
+
+dimensions:
+  event_start:
+    label: downtime start
+    type: date
+    grains: [day, month, quarter, year]
+
+  downtime_category:
+    label: downtime category
+    type: string
+    values: [MECHANICAL, ELECTRICAL, FACILITY, WEATHER, PLANNED_MAINTENANCE]
+
+  planning_status:
+    label: planning status
+    type: string
+    values: [PLANNED, UNPLANNED]
+
+  region:
+    label: region
+    type: string
+    via: wells.region_name
+
+  field_name:
+    label: field
+    type: string
+    via: wells.field_name
+
+  well_name:
+    label: well
+    type: string
+    via: wells.well_name
+
+  well_type:
+    label: well type
+    type: string
+    via: wells.well_type
+    values: [PRODUCER, INJECTOR, OBSERVATION]
+
+  asset:
+    label: asset
+    type: string
+    via: wells.asset_name
+
+  operator:
+    label: operator
+    type: string
+    via: wells.operator_name
+
+  basin:
+    label: basin
+    type: string
+    via: wells.basin_name
+
+  operating_status:
+    label: operating status
+    type: string
+    via: wells.operating_status
+    values: [ACTIVE, SHUT_IN, MONITORING]
+
+  lift_method:
+    label: lift method
+    type: string
+    via: wells.lift_method
+    values: [ESP, GAS_LIFT, ROD_PUMP, NATURAL_FLOW, NONE]
+
+measures:
+  lost_hours:
+    label: downtime hours
+    agg: sum
+    column: duration_hours
+    description: Total duration of downtime events in hours.
+
+  avg_event_hours:
+    label: event duration
+    agg: avg
+    column: duration_hours
+    description: Mean duration of a downtime event in hours.
+
+  event_count:
+    label: downtime events
+    agg: count
+    column: "*"
+    description: Count of downtime events.
+
+synonyms:
+  lost_hours: [downtime hours, outage hours, lost hours, non-productive time, npt]
+  avg_event_hours: [average outage, mean downtime duration]
+  event_count: [outages, downtime incidents, event count]
+  downtime_category: [outage reason, downtime reason]
+  planning_status: [planned versus unplanned, maintenance planning]
+  region: [area, oblast]
+  asset: [business unit, operating asset]
+  operator: [operating company]
+  basin: [geological basin]
+  operating_status: [well status, operating state]
+  lift_method: [artificial lift, lift type]

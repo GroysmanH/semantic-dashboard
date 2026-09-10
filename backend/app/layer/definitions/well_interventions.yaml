@@ -1,0 +1,116 @@
+entity: well_interventions
+label: Well Interventions
+table: ddh.fct_well_interventions
+description: One row per well intervention job.
+time_column: intervention_date
+
+joins:
+  wells:
+    to: ddh.dim_wells
+    condition: wells.well_id = fct_well_interventions.well_id
+    confidence: high
+
+dimensions:
+  intervention_date:
+    label: intervention date
+    type: date
+    grains: [day, month, quarter, year]
+
+  intervention_type:
+    label: intervention type
+    type: string
+    values: [FRAC, WORKOVER, ACIDIZING, PERFORATION]
+
+  status:
+    label: status
+    type: string
+    values: [COMPLETED, CANCELLED, IN_PROGRESS]
+
+  contractor:
+    label: contractor
+    type: string
+
+  region:
+    label: region
+    type: string
+    via: wells.region_name
+
+  field_name:
+    label: field
+    type: string
+    via: wells.field_name
+
+  well_name:
+    label: well
+    type: string
+    via: wells.well_name
+
+  well_type:
+    label: well type
+    type: string
+    via: wells.well_type
+    values: [PRODUCER, INJECTOR, OBSERVATION]
+
+  asset:
+    label: asset
+    type: string
+    via: wells.asset_name
+
+  operator:
+    label: operator
+    type: string
+    via: wells.operator_name
+
+  basin:
+    label: basin
+    type: string
+    via: wells.basin_name
+
+  operating_status:
+    label: operating status
+    type: string
+    via: wells.operating_status
+    values: [ACTIVE, SHUT_IN, MONITORING]
+
+  lift_method:
+    label: lift method
+    type: string
+    via: wells.lift_method
+    values: [ESP, GAS_LIFT, ROD_PUMP, NATURAL_FLOW, NONE]
+
+measures:
+  net_gain:
+    label: net gain
+    agg: sum
+    column: net_gain_bbl
+    description: Incremental production in barrels attributed to the intervention.
+
+  avg_net_gain:
+    label: net gain per job
+    agg: avg
+    column: net_gain_bbl
+    description: Mean incremental production per job, in barrels.
+
+  cost:
+    label: cost
+    agg: sum
+    column: cost_usd
+    description: Total intervention spend in USD.
+
+  n_jobs:
+    label: jobs
+    agg: count
+    column: "*"
+    description: Count of intervention jobs.
+
+synonyms:
+  net_gain: [gain, uplift, incremental production, net gain]
+  n_jobs: [jobs, job count, interventions, number of interventions]
+  cost: [spend, expenditure, capex]
+  region: [area, oblast]
+  intervention_type: [job type, work type]
+  asset: [business unit, operating asset]
+  operator: [operating company]
+  basin: [geological basin]
+  operating_status: [well status, operating state]
+  lift_method: [artificial lift, lift type]

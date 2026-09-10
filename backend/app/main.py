@@ -1,0 +1,43 @@
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from .bootstrap import ensure_board_schemas, ensure_seeded
+from .config import settings
+from .db import close_pools, open_pools
+from .migrations import run_migrations
+from .routes import ask, boards, cards, chat, schemas
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    run_migrations(settings.admin_url, settings.migration_dir)
+    try:
+        open_pools()
+        ensure_seeded()
+        ensure_board_schemas()
+        yield
+    finally:
+        close_pools()
+
+
+app = FastAPI(title="Semantic Dashboard", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(boards.router)
+app.include_router(cards.router)
+app.include_router(ask.router)
+app.include_router(schemas.router)
+app.include_router(chat.router)
+
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok"}

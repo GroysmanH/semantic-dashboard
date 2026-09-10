@@ -1,0 +1,237 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type Announcements,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  arrayMove,
+  horizontalListSortingStrategy,
+  sortableKeyboardCoordinates,
+} from "@dnd-kit/sortable";
+import type { ReactNode } from "react";
+import type { BoardSummary } from "../api/client";
+import SortableTab from "./SortableTab";
+
+function PencilIcon() {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden="true">
+      <path d="M13.6 3.2a1.6 1.6 0 0 1 2.3 0l.9.9a1.6 1.6 0 0 1 0 2.3l-7.9 7.9-3.6.9.9-3.6 7.4-8.4Z" />
+    </svg>
+  );
+}
+
+function CopyIcon() {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden="true">
+      <path d="M7 3h8a2 2 0 0 1 2 2v8h-1.5V5a.5.5 0 0 0-.5-.5H7V3Z" />
+      <path d="M4.5 6h8A1.5 1.5 0 0 1 14 7.5v8A1.5 1.5 0 0 1 12.5 17h-8A1.5 1.5 0 0 1 3 15.5v-8A1.5 1.5 0 0 1 4.5 6Zm0 1.5v8h8v-8h-8Z" />
+    </svg>
+  );
+}
+
+function PlusIcon() {
+  return (
+    <svg viewBox="0 0 20 20" aria-hidden="true">
+      <path d="M9.25 4h1.5v5.25H16v1.5h-5.25V16h-1.5v-5.25H4v-1.5h5.25V4Z" />
+    </svg>
+  );
+}
+
+/** Tabs over the boards that already existed in the schema and were never
+ *  more than one. Renaming is inline rather than a dialog: a tab is its
+ *  name, and editing it in place is the shortest path between the two. */
+export default function TabBar({
+  boards,
+  activeId,
+  busy,
+  onSelect,
+  onCreate,
+  onDuplicate,
+  onRename,
+  onDelete,
+  onReorder,
+  trailing,
+}: {
+  boards: BoardSummary[];
+  activeId: string | null;
+  busy: boolean;
+  onSelect: (id: string) => void;
+  onCreate: () => void;
+  /** A copy to experiment on. The original is what people are going to
+   *  keep looking at, so trying something has to not involve it. */
+  onDuplicate: (id: string) => void;
+  onRename: (id: string, title: string) => void;
+  onDelete: (id: string) => void;
+  onReorder: (order: string[]) => void;
+  /** Dashboard-level controls, rendered at the end of the same row. */
+  trailing?: ReactNode;
+}) {
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  const announcements = useMemo<Announcements>(() => {
+    const titleOf = (id: string | number) => (
+      boards.find((board) => board.id === String(id))?.title || "Untitled"
+    );
+    const positionOf = (id: string | number) => (
+      boards.findIndex((board) => board.id === String(id)) + 1
+    );
+    return {
+      onDragStart: ({ active }) => `Picked up ${titleOf(active.id)} dashboard.`,
+      onDragOver: ({ active, over }) => over
+        ? `${titleOf(active.id)} dashboard is in position ${positionOf(over.id)} of ${boards.length}.`
+        : `${titleOf(active.id)} dashboard is not over a drop position.`,
+      onDragEnd: ({ active, over }) => over
+        ? `Moved ${titleOf(active.id)} dashboard to position ${positionOf(over.id)} of ${boards.length}.`
+        : `${titleOf(active.id)} dashboard was not moved.`,
+      onDragCancel: ({ active }) => `Cancelled moving ${titleOf(active.id)} dashboard.`,
+    };
+  }, [boards]);
+
+  useEffect(() => {
+    if (editingId) inputRef.current?.select();
+  }, [editingId]);
+
+  const startRename = (board: BoardSummary) => {
+    if (busy) return;
+    setEditingId(board.id);
+    setDraft(board.title);
+  };
+
+  const commit = () => {
+    const id = editingId;
+    if (!id) return;
+    const title = draft.trim();
+    setEditingId(null);
+    // An empty name would leave a tab you cannot click. Keep the old one.
+    const previous = boards.find((b) => b.id === id)?.title;
+    if (title && title !== previous) onRename(id, title);
+  };
+
+  const finishSort = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    const from = boards.findIndex((board) => board.id === active.id);
+    const to = boards.findIndex((board) => board.id === over.id);
+    if (from < 0 || to < 0) return;
+    onReorder(arrayMove(boards, from, to).map((board) => board.id));
+  };
+
+  return (
+    <nav className="tabbar" aria-label="Dashboards">
+      <DndContext
+        sensors={sensors}
+        onDragEnd={finishSort}
+        accessibility={{
+          announcements,
+          screenReaderInstructions: {
+            draggable: "Press Space or Enter to pick up a dashboard, use arrow keys to move it, and press Space or Enter to drop. Press Escape to cancel.",
+          },
+        }}
+      >
+        <SortableContext
+          items={boards.map((board) => board.id)}
+          strategy={horizontalListSortingStrategy}
+        >
+          <ul className="tabbar-list" role="tablist">
+            {boards.map((board) => {
+              const active = board.id === activeId;
+              const editing = editingId === board.id;
+              return (
+                <SortableTab
+                  key={board.id}
+                  id={board.id}
+                  label={board.title || "Untitled"}
+                  active={active}
+                  disabled={busy || editing}
+                >
+                  {editing ? (
+                    <input
+                      ref={inputRef}
+                      className="tab-rename"
+                      aria-label={`Rename ${board.title}`}
+                      value={draft}
+                      onChange={(e) => setDraft(e.target.value)}
+                      onBlur={commit}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") commit();
+                        if (e.key === "Escape") setEditingId(null);
+                      }}
+                    />
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        className="tab-label"
+                        title="Double-click to rename"
+                        onClick={() => onSelect(board.id)}
+                        onDoubleClick={() => startRename(board)}
+                      >
+                        {board.title || "Untitled"}
+                      </button>
+                      {/* Double-click alone is not discoverable: nothing on
+                          screen says a tab can be renamed at all. */}
+                      <button
+                        type="button"
+                        className="tab-rename-button"
+                        aria-label={`Rename ${board.title}`}
+                        disabled={busy}
+                        onClick={() => startRename(board)}
+                      >
+                        <PencilIcon />
+                      </button>
+                      <button
+                        type="button"
+                        className="tab-rename-button"
+                        aria-label={`Duplicate ${board.title}`}
+                        title="Duplicate this dashboard"
+                        disabled={busy}
+                        onClick={() => onDuplicate(board.id)}
+                      >
+                        <CopyIcon />
+                      </button>
+                      <button
+                        type="button"
+                        className="tab-close"
+                        aria-label={`Delete ${board.title}`}
+                        disabled={busy || boards.length < 2}
+                        onClick={() => onDelete(board.id)}
+                      >
+                        ×
+                      </button>
+                    </>
+                  )}
+                </SortableTab>
+              );
+            })}
+          </ul>
+        </SortableContext>
+      </DndContext>
+      <button
+        type="button"
+        className="tab-add"
+        aria-label="New dashboard"
+        disabled={busy}
+        onClick={onCreate}
+      >
+        <PlusIcon />
+      </button>
+      {/* Trailing slot for settings that belong to the dashboard rather
+          than to the application. Rendered inside this nav so it shares the
+          sticky row and its rule, instead of a wrapper that would break
+          both. */}
+      {trailing}
+    </nav>
+  );
+}

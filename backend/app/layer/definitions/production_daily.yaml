@@ -1,0 +1,137 @@
+entity: production
+label: Daily Production
+table: ddh.fct_production_daily
+description: One row per well per calendar day of production readings.
+time_column: reading_date
+
+joins:
+  wells:
+    to: ddh.dim_wells
+    condition: wells.well_id = fct_production_daily.well_id
+    confidence: high
+
+dimensions:
+  reading_date:
+    label: reading date
+    type: date
+    grains: [day, month, quarter, year]
+
+  region:
+    label: region
+    type: string
+    via: wells.region_name
+
+  field_name:
+    label: field
+    type: string
+    via: wells.field_name
+
+  well_name:
+    label: well
+    type: string
+    via: wells.well_name
+
+  well_type:
+    label: well type
+    type: string
+    via: wells.well_type
+    values: [PRODUCER, INJECTOR, OBSERVATION]
+
+  asset:
+    label: asset
+    type: string
+    via: wells.asset_name
+
+  operator:
+    label: operator
+    type: string
+    via: wells.operator_name
+
+  basin:
+    label: basin
+    type: string
+    via: wells.basin_name
+
+  operating_status:
+    label: operating status
+    type: string
+    via: wells.operating_status
+    values: [ACTIVE, SHUT_IN, MONITORING]
+
+  lift_method:
+    label: lift method
+    type: string
+    via: wells.lift_method
+    values: [ESP, GAS_LIFT, ROD_PUMP, NATURAL_FLOW, NONE]
+
+measures:
+  oil:
+    label: oil production
+    agg: sum
+    column: oil_bbl
+    description: Total oil produced, in barrels.
+
+  gas:
+    label: gas production
+    agg: sum
+    column: gas_mcf
+    description: Total gas produced, in thousand cubic feet.
+
+  water:
+    label: water production
+    agg: sum
+    column: water_bbl
+    description: Total water produced, in barrels.
+
+  downtime:
+    label: downtime
+    agg: sum
+    column: downtime_hours
+    description: Total hours a well was not producing.
+
+  avg_oil:
+    label: daily oil per well
+    agg: avg
+    column: oil_bbl
+    description: Mean oil rate per well-day, in barrels.
+
+# Only definitions a business has an opinion about live here. Pure
+# arithmetic -- gas/oil, oil+water -- is reachable through the `ratio`
+# transform and a two-measure query, and declaring it would be
+# hand-maintaining four hundred combinations of twenty measures.
+derived:
+  water_cut:
+    label: water cut
+    formula: water / (oil + water)
+    description: Water as a share of total liquid produced. The industry
+      definition is water over oil-plus-water, not water over oil; a model
+      composing it unaided reaches for the wrong one.
+
+  uptime_pct:
+    label: uptime
+    formula: 1 - downtime / 24
+    description: Producing share of a well-day. The 24-hour denominator is
+      the convention that makes this a fraction rather than an hour count.
+
+# Coordinates are deliberately not dimensions. As dimensions they would be
+# selectable, and "oil by latitude" would compile, execute and mean
+# nothing. Here a map is a rendering of a per-well grouping, and the
+# nonsense question has no expression. Never rendered into the prompt.
+geo:
+  lat: wells.latitude
+  lon: wells.longitude
+  of: well_name
+
+synonyms:
+  oil: [crude, oil rate, oil volume]
+  gas: [natural gas, gas rate]
+  water: [water cut volume, produced water]
+  downtime: [outage, non-productive time, npt]
+  region: [area, oblast]
+  asset: [business unit, operating asset]
+  operator: [operating company]
+  basin: [geological basin]
+  operating_status: [well status, operating state]
+  lift_method: [artificial lift, lift type]
+  water_cut: [wc, water fraction]
+  uptime_pct: [uptime, availability]

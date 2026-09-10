@@ -1,0 +1,76 @@
+entity: oil_delivered
+label: Oil Delivered
+table: dm_upstream.daily_production_summary
+description: >
+  Oil and condensate handed over -- the delivery side of the daily
+  report, one row per company per day per raw material. Quantities are
+  tonnes. This is the same oil oil_mined counts, measured further down
+  the chain, so the two are never added together.
+time_column: date
+
+# The twin of oil_mined over the same table. See that file for why the
+# discriminator lives here rather than in the question.
+filters:
+  - field: type
+    value: Delivery
+
+dimensions:
+  report_date:
+    label: date
+    type: date
+    column: date
+    grains: [day, month, quarter, year]
+
+  company:
+    label: company
+    type: string
+    column: company_name
+
+  raw_material:
+    label: raw material
+    type: string
+    column: raw_material
+    values: [crude, condensate]
+
+measures:
+  actual:
+    label: actual delivery
+    agg: sum
+    column: day_actual
+    description: Tonnes delivered that day.
+    unit: tonnes
+
+  plan:
+    label: planned delivery
+    agg: sum
+    column: day_plan
+    description: Tonnes scheduled for delivery that day.
+    unit: tonnes
+
+  deviation:
+    label: deviation from plan
+    agg: sum
+    column: day_deviation
+    description: Actual minus plan for that day, in tonnes. Negative is a
+      shortfall.
+    unit: tonnes
+
+# well_downtime_hours and losses are production concepts and are not claimed for
+# the delivery half. Whether those columns carry anything on a Delivery
+# row is a question nobody has answered, and a measure that quietly
+# returns nulls is worse than one that is absent.
+
+derived:
+  attainment:
+    label: plan attainment
+    formula: actual / plan * 100
+    description: Summed actual as a percentage of summed plan.
+    unit: percent
+
+synonyms:
+  actual: [delivered, delivery, deliveries, handover, shipped oil]
+  plan: [delivery plan, planned delivery, delivery target]
+  deviation: [delivery shortfall, delivery variance]
+  attainment: [delivery attainment, percent of delivery plan]
+  company: [operator, producer, subsidiary, company]
+  raw_material: [raw material, product, feedstock]

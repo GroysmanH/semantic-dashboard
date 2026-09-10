@@ -1,0 +1,51 @@
+entity: field_targets
+label: Field Targets
+table: dm_planning.field_targets_monthly
+description: One row per field per month of planned oil production.
+time_column: target_month
+
+# No joins. Planning is answered from planning, which is the whole reason
+# it is a schema of its own rather than another fact in the operational one.
+
+dimensions:
+  target_month:
+    label: target month
+    type: date
+    # No day grain: a target is set for a month and does not become a
+    # daily number by being divided by thirty.
+    grains: [month, quarter, year]
+
+  field_name:
+    label: field
+    type: string
+
+  asset_name:
+    label: asset
+    type: string
+
+  region_name:
+    label: region
+    type: string
+
+  operator_name:
+    label: operator
+    type: string
+
+  basin_name:
+    label: basin
+    type: string
+
+measures:
+  target_oil:
+    label: oil target
+    agg: sum
+    column: target_oil_bbl
+    description: Planned oil production for the field that month, in barrels.
+
+synonyms:
+  target_oil: [target, plan, planned oil, oil plan, planned production]
+  field_name: [field]
+  asset_name: [asset, business unit]
+  region_name: [region, area, oblast]
+  operator_name: [operator, operating company]
+  basin_name: [basin]

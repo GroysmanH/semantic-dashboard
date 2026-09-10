@@ -1,0 +1,71 @@
+entity: production_performance
+label: Monthly Production Performance
+table: ddh.mart_production_performance_monthly
+description: One row per field and month with oil actual, target, variance, and attainment.
+time_column: performance_month
+
+dimensions:
+  performance_month:
+    label: performance month
+    type: date
+    grains: [month, quarter, year]
+
+  field_name:
+    label: field
+    type: string
+
+  asset:
+    label: asset
+    type: string
+    column: asset_name
+
+  region:
+    label: region
+    type: string
+    column: region_name
+
+  operator:
+    label: operator
+    type: string
+    column: operator_name
+
+  basin:
+    label: basin
+    type: string
+    column: basin_name
+
+measures:
+  actual_oil:
+    label: actual oil production
+    agg: sum
+    column: actual_oil_bbl
+    description: Total actual oil production in barrels.
+
+  target_oil:
+    label: target oil production
+    agg: sum
+    column: target_oil_bbl
+    description: Total planned oil production in barrels.
+
+  variance_oil:
+    label: oil variance to target
+    agg: sum
+    column: variance_oil_bbl
+    description: Actual minus target oil production in barrels.
+
+derived:
+  attainment:
+    label: target attainment
+    formula: actual_oil / target_oil * 100
+    description: Summed actual production as a percentage of summed target.
+
+synonyms:
+  actual_oil: [actual production, actuals, delivered oil]
+  target_oil: [production target, plan, budget oil]
+  variance_oil: [variance to plan, plan variance, target gap]
+  attainment: [target attainment, plan attainment, percent of target]
+  field_name: [field]
+  asset: [business unit, operating asset]
+  region: [area, oblast]
+  operator: [operating company]
+  basin: [geological basin]

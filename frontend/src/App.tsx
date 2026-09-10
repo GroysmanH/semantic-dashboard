@@ -1,0 +1,416 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import "react-grid-layout/css/styles.css";
+import "react-resizable/css/styles.css";
+import "./styles.css";
+import Board from "./components/Board";
+import type { CardNavigationTarget } from "./components/Board";
+import ChatPanel from "./components/ChatPanel";
+import ConfirmDialog from "./components/ConfirmDialog";
+import SchemaPicker from "./components/SchemaPicker";
+import TabBar from "./components/TabBar";
+import type {
+  BoardSummary, ChatGates, Provider, Providers, SchemaInfo,
+} from "./api/client";
+import { api } from "./api/client";
+import { chatApi } from "./api/chat";
+import { prefs } from "./state/preferences";
+
+// Which tab you were last on is view state, not data. It belongs to this
+// browser, not to the boards everyone shares.
+const LAST_BOARD = "semantic-dashboard:last-board";
+
+export default function App() {
+  const [boards, setBoards] = useState<BoardSummary[]>([]);
+  const [boardId, setBoardId] = useState<string | null>(null);
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  const [cardTarget, setCardTarget] =
+    useState<(CardNavigationTarget & { boardId: string }) | null>(null);
+  const [examples, setExamples] = useState<string[]>([]);
+  const [catalogue, setCatalogue] = useState<SchemaInfo[]>([]);
+  const [providers, setProviders] = useState<Providers>({
+    default: "anthropic",
+    available: [],
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Bumped when something outside the grid changes it. Board keys on this,
+  // so a chat change reloads the cards the same way switching tabs does --
+  // one reload path rather than two ways for the screen to be stale.
+  const [epoch, setEpoch] = useState(0);
+  // The dashboard a confirmation is currently about, with the count read
+  // before the dialog opens so the sentence can say how much goes.
+  const [pendingDelete, setPendingDelete] =
+    useState<{ id: string; title: string; cards: number } | null>(null);
+
+  // One provider for the whole session, remembered. Asked once per blank
+  // card it was the same question four times on a four-card board.
+  const [provider, setProviderState] = useState<Provider>("anthropic");
+  const [gates, setGates] = useState<ChatGates>({
+    enabled: false, data_sharing_permitted: false,
+  });
+  const [threadId, setThreadId] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [pinned, setPinned] = useState(prefs.pinned());
+  const [chatWidth, setChatWidth] = useState(prefs.width());
+  const [shareData, setShareData] = useState(prefs.shareData());
+  // React state does not update synchronously enough to be a lock. This ref
+  // prevents a second board mutation entering before the busy render lands.
+  const mutationInFlight = useRef(false);
+
+  const select = useCallback((id: string) => {
+    setBoardId(id);
+    setSelectedCardId(null);
+    setCardTarget(null);
+    try {
+      localStorage.setItem(LAST_BOARD, id);
+    } catch {
+      // Private browsing and storage-blocked contexts: the tab still works,
+      // it just will not be remembered.
+    }
+  }, []);
+
+  const navigate = useCallback((targetBoardId: string, cardId?: string) => {
+    select(targetBoardId);
+    if (cardId) {
+      setSelectedCardId(cardId);
+      setCardTarget({ boardId: targetBoardId, cardId, intent: "reveal" });
+    }
+  }, [select]);
+
+  const editCard = useCallback((targetBoardId: string, cardId: string) => {
+    select(targetBoardId);
+    setSelectedCardId(cardId);
+    setCardTarget({ boardId: targetBoardId, cardId, intent: "edit" });
+  }, [select]);
+
+  // Whichever board is in front of you. Named once rather than looked up
+  // at four call sites that could disagree.
+  const active = boards.find((b) => b.id === boardId) ?? null;
+  const activeSchema = active?.schema_name;
+
+  // Its own effect, not part of the bootstrap. The catalogue drives one
+  // control; the boards are the application. A warehouse that cannot be
+  // introspected should cost you the schema picker, not the dashboard you
+  // were trying to open.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const listed = await api.schemas();
+        if (!cancelled) setCatalogue(Array.isArray(listed) ? listed : []);
+      } catch {
+        if (!cancelled) setCatalogue([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!activeSchema) return;
+    let cancelled = false;
+    // Suggestions follow the dashboard's schema, on a tab switch as well
+    // as on a schema change. Offering "oil production by month" on a
+    // planning board teaches a question it would then refuse.
+    api.layer(activeSchema)
+      .then((l) => { if (!cancelled) setExamples(l.examples); })
+      .catch(() => { /* the board still works without suggestions */ });
+    return () => { cancelled = true; };
+  }, [activeSchema]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [listed, layer] = await Promise.all([
+          api.listBoards(), api.layer(),
+        ]);
+        setExamples(layer.examples);
+        setProviders(layer.providers);
+        setGates(layer.chat ?? { enabled: false, data_sharing_permitted: false });
+        setProviderState(prefs.provider(layer.providers.default));
+
+        const known = listed.length ? listed : [await api.createBoard("Operations")];
+        setBoards(known);
+
+        let remembered: string | null = null;
+        try {
+          remembered = localStorage.getItem(LAST_BOARD);
+        } catch {
+          remembered = null;
+        }
+        // A remembered board may since have been deleted, so fall back
+        // rather than showing an empty screen.
+        const opening = known.find((b) => b.id === remembered) ?? known[0];
+        select(opening.id);
+
+        if (layer.chat?.enabled) {
+          // The thread outlives the tab and the reload. A remembered one
+          // that the server no longer has is replaced rather than surfaced
+          // as an error nobody can act on.
+          const remembered_thread = prefs.threadId();
+          let id = remembered_thread;
+          if (id) {
+            try {
+              await chatApi.getThread(id);
+            } catch {
+              id = null;
+            }
+          }
+          if (!id) id = (await chatApi.createThread()).id;
+          prefs.setThreadId(id);
+          setThreadId(id);
+          setChatOpen(prefs.open());
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    })();
+  }, [select]);
+
+  const setProvider = (p: Provider) => {
+    setProviderState(p);
+    prefs.setProvider(p);
+  };
+
+  const chatToggleRef = useRef<HTMLButtonElement>(null);
+
+  const toggleChat = useCallback(() => {
+    setChatOpen((wasOpen) => {
+      prefs.setOpen(!wasOpen);
+      // Closing sends focus back where it came from. Without this it lands
+      // on <body> and the next Tab starts from the top of the page, which
+      // is how a keyboard user loses their place.
+      if (wasOpen) chatToggleRef.current?.focus();
+      return !wasOpen;
+    });
+  }, []);
+
+  // Documented on the button's title so the shortcut is discoverable
+  // rather than folklore.
+  useEffect(() => {
+    if (!gates.enabled) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.shiftKey && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "a") {
+        e.preventDefault();
+        toggleChat();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [gates.enabled, toggleChat]);
+
+  const guard = async (work: () => Promise<void>) => {
+    if (mutationInFlight.current) return;
+    mutationInFlight.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      await work();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      mutationInFlight.current = false;
+      setBusy(false);
+    }
+  };
+
+  const create = () =>
+    guard(async () => {
+      // Inherits the schema of the board you were on: making a second
+      // dashboard about the same subject should not ask you again.
+      const board = await api.createBoard("New dashboard", active?.schema_name);
+      setBoards((prev) => [...prev, board]);
+      select(board.id);
+    });
+
+  const chooseSchema = (schemaName: string) =>
+    guard(async () => {
+      if (!boardId) return;
+      const updated = await api.updateBoard(boardId, { schema_name: schemaName });
+      setBoards((prev) => prev.map((b) => (b.id === boardId ? updated : b)));
+    });
+
+  const rename = (id: string, title: string) =>
+    guard(async () => {
+      const updated = await api.updateBoard(id, { title });
+      setBoards((prev) => prev.map((b) => (b.id === id ? updated : b)));
+    });
+
+  const duplicate = (id: string) =>
+    guard(async () => {
+      const copy = await api.duplicateBoard(id);
+      setBoards((prev) => [...prev, copy]);
+      // Straight to the copy. Duplicating and then having to find the new
+      // tab is two actions where the person meant one.
+      select(copy.id);
+    });
+
+  const askToRemove = (id: string) =>
+    guard(async () => {
+      const board = boards.find((b) => b.id === id);
+      // Counted before asking, so the question can say how much goes
+      // rather than making the person open the tab to find out.
+      const loaded = board ? await api.getBoard(id) : null;
+      setPendingDelete({
+        id,
+        title: board?.title ?? "this dashboard",
+        cards: loaded?.cards.length ?? 0,
+      });
+    });
+
+  const remove = (id: string) =>
+    guard(async () => {
+      setPendingDelete(null);
+      await api.deleteBoard(id);
+      const left = boards.filter((b) => b.id !== id);
+      setBoards(left);
+      if (boardId === id && left.length) select(left[0].id);
+    });
+
+  /** A change the assistant applied. Everything on screen may have moved:
+   *  the tab list, the tab you are on, and the cards under it. */
+  const applied = useCallback(async (targetBoardId: string | null) => {
+    const listed = await api.listBoards();
+    setBoards(listed);
+    if (targetBoardId && listed.some((b) => b.id === targetBoardId)) {
+      select(targetBoardId);
+    } else if (!listed.some((b) => b.id === boardId) && listed.length) {
+      // The dashboard you were on was the one removed.
+      select(listed[0].id);
+    }
+    setEpoch((n) => n + 1);
+  }, [boardId, select]);
+
+  const reorder = (order: string[]) =>
+    guard(async () => {
+      const before = boards;
+      const previousPositions = new Map(before.map((board) => [board.id, board.position]));
+      const next = order.map((id, position) => ({
+        ...before.find((board) => board.id === id)!,
+        position,
+      }));
+      setBoards(next);
+      try {
+        await api.reorderBoards(order);
+      } catch (reorderError) {
+        // Revert only ordering. Replacing the whole snapshot could erase a
+        // title or other board field refreshed while the request was open.
+        setBoards((current) => current
+          .map((board) => ({
+            ...board,
+            position: previousPositions.get(board.id) ?? board.position,
+          }))
+          .sort((left, right) => left.position - right.position));
+        throw reorderError;
+      }
+    });
+
+  return (
+    <>
+      <header className="masthead">
+        <div id="board-primary-action" className="masthead-action" />
+        <h1>Semantic Dashboard</h1>
+        <span className="eyebrow">grounded in a curated layer · no row data leaves the warehouse</span>
+        <span className="spacer" />
+        <div id="board-export-action" className="masthead-action" />
+        {gates.enabled && (
+          <button
+            ref={chatToggleRef}
+            type="button"
+            className="chat-toggle"
+            aria-expanded={chatOpen}
+            aria-controls="assistant-drawer"
+            title="Show or hide the assistant (Ctrl/Cmd + Shift + A)"
+            onClick={toggleChat}
+          >
+            Chat
+          </button>
+        )}
+      </header>
+      <TabBar
+        boards={boards}
+        activeId={boardId}
+        busy={busy}
+        onSelect={select}
+        onCreate={create}
+        onDuplicate={duplicate}
+        onRename={rename}
+        onDelete={askToRemove}
+        onReorder={reorder}
+        // Board-level, so it rides the board's own row rather than the
+        // masthead, which is about the application.
+        trailing={active && catalogue.length > 0 ? (
+          <SchemaPicker
+            schemas={catalogue}
+            current={active.schema_name}
+            busy={busy}
+            onChoose={chooseSchema}
+          />
+        ) : null}
+      />
+      {error && <p className="notice broken" style={{ margin: "1rem 1.25rem" }}>{error}</p>}
+      {/* Pinning narrows the workspace with CSS only. It must never reach
+          saveLayout: a drawer is this browser's furniture, not the board's. */}
+      <div
+        className="workspace"
+        style={chatOpen && pinned ? { marginRight: chatWidth } : undefined}
+      >
+        {boardId && (
+          <Board
+            key={`${boardId}:${epoch}`}
+            boardId={boardId}
+            examples={examples}
+            provider={provider}
+            providers={providers.available}
+            onProviderChange={setProvider}
+            strongAvailable={
+              providers.capabilities?.[provider]?.strong_available ?? true
+            }
+            onSelectionChange={setSelectedCardId}
+            cardTarget={cardTarget?.boardId === boardId
+              ? cardTarget
+              : null}
+            onCardTargetHandled={() => setCardTarget(null)}
+          />
+        )}
+      </div>
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={`Delete ${pendingDelete?.title ?? ""}`}
+        body={pendingDelete?.cards
+          ? `Its ${pendingDelete.cards} card${pendingDelete.cards === 1 ? "" : "s"} go with it. This cannot be undone.`
+          : "This cannot be undone."}
+        confirmLabel="Delete it"
+        destructive
+        onConfirm={() => pendingDelete && void remove(pendingDelete.id)}
+        onCancel={() => setPendingDelete(null)}
+      />
+      {gates.enabled && (
+        <ChatPanel
+          threadId={threadId}
+          open={chatOpen}
+          pinned={pinned}
+          width={chatWidth}
+          activeBoardId={boardId}
+          activeBoardTitle={boards.find((b) => b.id === boardId)?.title ?? ""}
+          boards={boards}
+          examples={examples}
+          provider={provider}
+          providers={providers.available}
+          capabilities={providers.capabilities ?? {}}
+          shareVisibleData={shareData}
+          dataSharingPermitted={gates.data_sharing_permitted}
+          selectedCardId={selectedCardId}
+          onClose={toggleChat}
+          onPinnedChange={(v) => { setPinned(v); prefs.setPinned(v); }}
+          onWidthChange={(px) => { setChatWidth(px); prefs.setWidth(px); }}
+          onProviderChange={setProvider}
+          onConsentChange={(v) => { setShareData(v); prefs.setShareData(v); }}
+          onThreadChange={(id) => { setThreadId(id); prefs.setThreadId(id); }}
+          onNavigate={navigate}
+          onEditCard={editCard}
+          onApplied={applied}
+        />
+      )}
+    </>
+  );
+}

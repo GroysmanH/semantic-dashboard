@@ -1,0 +1,104 @@
+entity: oil_mined
+label: Oil Mined
+table: dm_upstream.daily_production_summary
+description: >
+  Oil and condensate lifted from the ground, one row per company per day
+  per raw material. Quantities are tonnes.
+time_column: date
+
+# The table holds production and delivery of the same oil, told apart by
+# `type`. Summed together, "how much oil in August" answers with roughly
+# double the truth and draws a perfectly normal chart doing it. So the
+# discriminator is part of what this entity *is*: half the table, and no
+# question can reach the other half. See oil_delivered.yaml for the twin.
+filters:
+  - field: type
+    value: Mining
+
+# No joins. Company is denormalised into the row as text, so the daily
+# report answers on its own.
+
+dimensions:
+  report_date:
+    label: date
+    type: date
+    column: date
+    grains: [day, month, quarter, year]
+
+  company:
+    label: company
+    type: string
+    column: company_name
+    # High cardinality and they are business relationships, so the
+    # names are not listed here -- everything in this file is sent to
+    # the model on every question, and a list of counterparties is
+    # not metadata.
+
+  raw_material:
+    label: raw material
+    type: string
+    column: raw_material
+    values: [crude, condensate]
+
+measures:
+  actual:
+    label: actual production
+    agg: sum
+    column: day_actual
+    description: Tonnes produced that day.
+    unit: tonnes
+
+  plan:
+    label: planned production
+    agg: sum
+    column: day_plan
+    description: Tonnes planned for that day.
+    unit: tonnes
+
+  deviation:
+    label: deviation from plan
+    agg: sum
+    column: day_deviation
+    description: Actual minus plan for that day, in tonnes. Negative is a
+      shortfall.
+    unit: tonnes
+
+  lost_volume:
+    label: lost volume
+    agg: sum
+    column: losses
+    description: Tonnes lost that day.
+    unit: tonnes
+
+  well_downtime:
+    label: well downtime
+    agg: sum
+    column: well_downtime_hours
+    quality_warning: The source unit for well downtime is not documented.
+
+# Deliberately absent: dateplanamount, datefactamount, datedeviation,
+# monthplanamount and stokofgoods. The first four appear to be running
+# totals -- dateplanamount runs about thirty times day_plan, which
+# is a month -- and a running total summed across thirty days gives some
+# fifteen times the truth. stokofgoods is a stock, not a flow, and adding
+# a level across days is meaningless the same way. They go in when
+# somebody confirms what they mean, not before.
+
+derived:
+  attainment:
+    label: plan attainment
+    formula: actual / plan * 100
+    description: Summed actual as a percentage of summed plan. A ratio of
+      sums, not a sum of ratios -- averaging daily percentages would weight
+      a quiet day the same as a peak one.
+    unit: percent
+
+synonyms:
+  actual: [actual production, mined, lifted]
+  plan: [production plan, planned production, production target]
+  deviation: [deviation from plan, production shortfall]
+  attainment: [plan attainment, percent of plan, plan fulfilment]
+  lost_volume: [loss, lost tonnes]
+  well_downtime: [downtime, well downtime]
+  company: [operator, producer, subsidiary, company]
+  raw_material: [raw material, product, feedstock]

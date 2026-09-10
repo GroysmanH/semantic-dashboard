@@ -1,0 +1,1311 @@
+/* Heavy industry reads blue: a deep navy carrying the weight, a bright
+   cyan used sparingly, on cool paper rather than warm. Chosen by eye for
+   the subject rather than taken from a brand book -- so they are tokens,
+   and pointing this at another organisation is one edit.
+
+   One colour is load-bearing (--accent) and everything else is ink, rule or
+   surface. That is deliberate: on a page whose whole job is charts, an
+   interface that also uses colour to mean things competes with the data. */
+:root {
+  color-scheme: light;
+  --ground: #e9eef4;
+  --surface: #ffffff;
+  --surface-2: #f3f7fb;
+  --surface-raised: #ffffff;
+  --ink: #0d1f35;
+  --ink-soft: #51637a;
+  /* Darkened from the old value until 10px mono labels clear 4.5:1 on
+     every surface they sit on, ground included. An eyebrow nobody can read
+     is decoration with a word in it. */
+  --ink-faint: #5a6c80;
+  --rule: #c9d5e2;
+  --rule-soft: #e2eaf2;
+  --accent: #00539b;
+  --accent-deep: #003a6f;
+  --accent-soft: #dceaf7;
+  /* The emblem cyan. Marks and rules only, never text: it is 3.3:1 on
+     white, which is enough to see and not enough to read. */
+  --bright: #00a0df;
+  /* Warning amber, dark enough to be read as text -- it is used for
+     "stale" and for the refusal rail, not only for a chart mark. */
+  --signal: #9c5c00;
+  --alarm: #a32020;
+  --alarm-soft: #fbeaea;
+  /* Anchored on the accent so a chart belongs to the page, then spread far
+     enough apart to survive being printed, projected, or read by someone
+     who cannot separate red from green. Blue against amber is the safest
+     axis there is; the two blues differ in lightness as well as hue. */
+  --chart-blue: #00539b;
+  --chart-cyan: #00a0df;
+  --chart-amber: #c08427;
+  --chart-plum: #8e5572;
+  --shadow: 0 10px 34px rgb(13 31 53 / 12%);
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Roboto Mono", Menlo, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  --r: 4px;
+  --motion: 220ms cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-ms: 220ms;
+}
+
+/* Motion here is orientation -- where a panel came from, which card moved.
+   Someone who has asked for less of it still needs the orientation, so the
+   states stay and only the travel between them goes. */
+@media (prefers-reduced-motion: reduce) {
+  :root { --motion: 1ms linear; --motion-ms: 1ms; }
+  *, *::before, *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+
+.masthead {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  min-height: 64px;
+  padding: 0.5rem 1.25rem;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  border-bottom: 1px solid var(--rule);
+  backdrop-filter: blur(12px);
+}
+.masthead h1 {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.masthead .spacer { flex: 1; }
+.masthead-action { flex: none; display: flex; align-items: center; }
+.board-secondary-controls { display: flex; align-items: center; gap: 0.65rem; }
+.auto-pack-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.045em;
+  cursor: pointer;
+  user-select: none;
+}
+.auto-pack-control input,
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+.auto-pack-track {
+  position: relative;
+  width: 27px;
+  height: 16px;
+  flex: none;
+  background: var(--rule);
+  border-radius: 999px;
+  transition: background var(--motion);
+}
+.auto-pack-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  background: var(--surface);
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgb(13 31 53 / 22%);
+  transition: transform var(--motion);
+}
+.auto-pack-control input:checked + .auto-pack-track { background: var(--accent); }
+.auto-pack-control input:checked + .auto-pack-track::after { transform: translateX(11px); }
+.auto-pack-control input:focus-visible + .auto-pack-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.auto-pack-control:has(input:disabled) { color: var(--ink-faint); cursor: default; }
+.auto-pack-state { min-width: 1.6rem; color: var(--ink-faint); }
+.auto-pack-control:has(input:checked) .auto-pack-state { color: var(--accent); }
+
+/* -- tabs ------------------------------------------------------------- */
+
+.tabbar {
+  position: sticky;
+  top: 64px;
+  z-index: 19;
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+  padding: 0 1.25rem;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  border-bottom: 1px solid var(--rule);
+  backdrop-filter: blur(12px);
+}
+.tabbar-list {
+  display: flex;
+  align-items: stretch;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0 0.15rem 0 0;
+  /* The active tab is marked the way a ready card is: a rule in the accent,
+     here along the bottom edge it shares with the board. */
+  border-bottom: 2px solid transparent;
+}
+.tab-active { border-bottom-color: var(--accent); }
+.tab-dragging {
+  z-index: 30;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow);
+}
+
+.tab-label,
+.tab-close,
+.tab-add,
+.tab-drag {
+  background: none;
+  border: none;
+  border-radius: var(--r);
+  color: var(--ink-faint);
+  cursor: pointer;
+  transition: color var(--motion), background var(--motion);
+}
+.tab-drag {
+  width: 20px;
+  align-self: stretch;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  cursor: grab;
+  touch-action: none;
+}
+.tab-drag:active { cursor: grabbing; }
+.tab-drag:disabled { cursor: default; opacity: 0.35; }
+.tab-drag span {
+  width: 9px;
+  height: 15px;
+  background-image: radial-gradient(circle, currentColor 1px, transparent 1.4px);
+  background-position: 0 0;
+  background-size: 4px 4px;
+}
+.tab-label {
+  max-width: 15rem;
+  overflow: hidden;
+  padding: 0.7rem 0.5rem;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.tab-active .tab-label { color: var(--ink); }
+.tab-label:hover { color: var(--ink); }
+
+.tab-rename-button {
+  padding: 0.15rem 0.2rem;
+  opacity: 0;
+}
+.tab:hover .tab-rename-button,
+.tab-rename-button:focus-visible { opacity: 1; }
+.tab-rename-button:hover { color: var(--accent); }
+.tab-rename-button svg { width: 11px; height: 11px; fill: currentColor; }
+
+.tab-close {
+  padding: 0.1rem 0.3rem;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0;
+}
+.tab:hover .tab-close,
+.tab-close:focus-visible { opacity: 1; }
+.tab-close:hover { color: var(--alarm); }
+.tab-close:disabled { display: none; }
+
+.tab-add {
+  align-self: center;
+  display: inline-flex;
+  padding: 0.35rem;
+}
+.tab-add:hover { color: var(--accent); background: var(--accent-soft); }
+.tab-add svg { width: 14px; height: 14px; fill: currentColor; }
+
+.tab-rename {
+  width: 9rem;
+  margin: 0.35rem 0;
+  padding: 0.3rem 0.4rem;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--r);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+
+.export-menu { position: relative; flex: none; }
+.export-menu-button {
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.55rem;
+  color: var(--ink-soft);
+  background: transparent;
+  border-color: var(--rule);
+}
+.export-menu-button:hover:not(:disabled),
+.export-menu-button[aria-expanded="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.export-menu-button:disabled { opacity: 0.4; cursor: default; }
+.export-chevron {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  transition: transform var(--motion);
+}
+/* Points at the menu it opened. */
+.export-menu-button[aria-expanded="true"] .export-chevron {
+  transform: rotate(180deg);
+}
+.export-menu-popover {
+  position: absolute;
+  z-index: 32;
+  top: calc(100% + 4px);
+  min-width: 112px;
+  padding: 4px;
+  background: var(--surface-raised);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  animation: pop-in 120ms ease-out;
+}
+.export-menu-popover.align-start { left: 0; }
+.export-menu-popover.align-end { right: 0; }
+.export-menu-popover button {
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+  color: var(--ink-soft);
+  background: transparent;
+  border-color: transparent;
+}
+.export-menu-popover button:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.export-menu-popover button:disabled { opacity: 0.4; }
+
+/* -- assistant drawer --------------------------------------------------- */
+
+.workspace { transition: margin-right var(--motion); }
+
+.chat-toggle {
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  background: none;
+  color: var(--ink-soft);
+}
+.chat-toggle[aria-pressed="true"] {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* The panel is always mounted and slides out of the way, rather than being
+   torn down and rebuilt. Two reasons, and only one of them is the
+   animation: a drawer that appears has no direction, so nothing tells you
+   where it went or where to look for it again. The other is that an
+   unmounted panel loses its scroll position and its in-flight requests
+   every time somebody glances at a chart.
+
+   Closed, it is pushed off-screen *and* taken out of the accessibility
+   tree. Sliding alone would leave a transcript full of focusable buttons
+   sitting past the right edge, reachable by Tab and invisible. */
+.chat-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--surface);
+  border-left: 1px solid var(--rule);
+  box-shadow: var(--shadow);
+  transform: translateX(0);
+  transition: transform var(--motion), visibility 0s;
+}
+.chat-drawer[data-open="false"] {
+  transform: translateX(100%);
+  visibility: hidden;
+  /* Held visible for the length of the slide, or it vanishes and then
+     animates something nobody can see. */
+  transition: transform var(--motion), visibility 0s linear var(--motion-ms);
+}
+/* Pinned only removes the shadow: the workspace margin is what actually
+   makes room, and that is CSS, never a saved layout. */
+.chat-drawer.pinned { box-shadow: none; }
+
+.chat-resize {
+  position: absolute;
+  top: 0;
+  left: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+}
+.chat-resize:hover { background: var(--accent-soft); }
+/* No handle to grab while the panel is off-screen. */
+.chat-drawer[data-open="false"] .chat-resize { pointer-events: none; }
+
+.chat-head {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.75rem 0.9rem;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.chat-head .spacer { flex: 1; }
+.chat-scope {
+  margin: 0;
+  padding: 0.5rem 0.9rem;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.chat-log {
+  flex: 1;
+  margin: 0;
+  padding: 0.9rem;
+  overflow-y: auto;
+  list-style: none;
+}
+.chat-turn { margin-bottom: 1rem; }
+.chat-turn p { margin: 0 0 0.35rem; }
+.chat-user p {
+  padding: 0.5rem 0.65rem;
+  background: var(--surface-2);
+  border-radius: var(--r);
+  font-size: 13px;
+}
+.chat-assistant { font-size: 13px; line-height: 1.55; }
+.chat-assistant.chat-refuse { border-left: 2px solid var(--signal); padding-left: 0.6rem; }
+.chat-assistant.chat-clarify { border-left: 2px solid var(--accent); padding-left: 0.6rem; }
+.chat-empty p { color: var(--ink-faint); }
+.chat-empty .eyebrow { display: block; margin: 1rem 0 0.4rem; }
+
+/* Real questions rather than a prompt to invent one. They are buttons
+   because reading them and asking them should be the same gesture. */
+.chat-examples {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.chat-examples .chip {
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  background: var(--surface-2);
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--motion), border-color var(--motion),
+              background var(--motion);
+}
+.chat-examples .chip:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* One control, stated once, rather than four radios competing with the
+   question box next to them. */
+.provider-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+.provider-picker select {
+  padding: 0.2rem 0.35rem;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  font: inherit;
+  font-size: 12px;
+}
+.provider-picker select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* -- confirmation ----------------------------------------------------- */
+
+.modal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(13 31 53 / 38%);
+  backdrop-filter: blur(2px);
+  animation: scrim-in var(--motion);
+}
+.modal {
+  width: min(30rem, 100%);
+  padding: 1.1rem 1.2rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: calc(var(--r) * 2);
+  box-shadow: var(--shadow);
+  animation: modal-in var(--motion);
+}
+.modal h2 {
+  margin: 0 0 0.4rem;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.modal p { margin: 0 0 1rem; color: var(--ink-soft); font-size: 13px; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 0.4rem; }
+
+@keyframes scrim-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.99); }
+  to { opacity: 1; transform: none; }
+}
+
+/* A change waiting to be authorised. Boxed and rules-first rather than
+   coloured in: this is a document to read, and the one moment in the panel
+   where skimming is the wrong behaviour. */
+.chat-plan {
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--accent);
+  border-radius: var(--r);
+  background: var(--surface-2);
+  font-size: 13px;
+}
+.plan-ops {
+  margin: 0.4rem 0 0.6rem;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--rule-soft);
+}
+.plan-ops li {
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.plan-op { display: block; }
+.plan-diff {
+  display: block;
+  margin-top: 0.2rem;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+.plan-diff s { color: var(--ink-faint); }
+.plan-actions { display: flex; gap: 0.4rem; }
+
+/* A plan that removes things is the one whose preview most needs reading,
+   so it is the one place the interface spends a second colour. */
+.chat-plan.removes { border-color: var(--alarm); background: var(--alarm-soft); }
+.chat-plan.removes .eyebrow { color: var(--alarm); }
+.plan-ops .op-removes .plan-op { color: var(--alarm); }
+button.danger {
+  background: var(--alarm);
+  border-color: var(--alarm);
+  color: #fff;
+}
+button.danger:hover:not(:disabled) {
+  filter: brightness(1.08);
+  background: var(--alarm);
+}
+
+.result-actions { margin: 0.5rem 0 0.35rem; }
+
+.chat-progress { font-size: 13px; }
+.progress-rail {
+  height: 3px;
+  margin: 0.4rem 0 0.5rem;
+  background: var(--rule-soft);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.progress-rail span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 200ms linear;
+}
+
+.chat-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.chat-sources .chip {
+  padding: 0.15rem 0.4rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  background: none;
+  font-size: 10px;
+  color: var(--ink-soft);
+}
+.chat-sources .chip:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+/* A card the transcript still cites but the board no longer has. */
+.chat-sources .chip.dead {
+  color: var(--ink-faint);
+  border-style: dashed;
+  text-decoration: line-through;
+  cursor: default;
+}
+
+.chat-exposed { display: block; margin-top: 0.3rem; }
+.chat-request textarea {
+  width: 100%;
+  margin-top: 0.25rem;
+  padding: 0.35rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  font-family: var(--mono);
+  font-size: 11px;
+  resize: vertical;
+}
+
+.chat-result {
+  margin: 0.4rem 0 0;
+  padding: 0.6rem;
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r);
+  background: var(--surface-2);
+}
+.chat-chart { height: 220px; margin: 0.5rem 0; }
+
+.chat-compose {
+  padding: 0.75rem 0.9rem;
+  border-top: 1px solid var(--rule);
+}
+/* -- switches ---------------------------------------------------------
+
+   A checkbox says "is this true?"; a switch says "is this on?". Both of
+   these are settings that stay on until turned off, which is the switch's
+   question, not the checkbox's. The real input is still a checkbox with
+   role="switch" underneath -- it keeps the keyboard behaviour, the label
+   association and the disabled state that a div pretending to be a control
+   would have to reimplement badly. */
+
+.switches {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.55rem;
+}
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--ink-soft);
+  font-size: 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.switch input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.switch-track {
+  flex: none;
+  position: relative;
+  width: 26px;
+  height: 15px;
+  background: var(--rule);
+  border-radius: 999px;
+  transition: background var(--motion);
+}
+.switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 11px;
+  height: 11px;
+  background: var(--surface);
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgb(13 31 53 / 25%);
+  transition: transform var(--motion);
+}
+.switch input:checked + .switch-track { background: var(--accent); }
+.switch input:checked + .switch-track::after { transform: translateX(11px); }
+.switch input:focus-visible + .switch-track {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.switch input:disabled + .switch-track { opacity: 0.45; }
+.switch:has(input:disabled) { color: var(--ink-faint); cursor: not-allowed; }
+.switch:hover:not(:has(input:disabled)) { color: var(--ink); }
+
+.board-area {
+  min-height: calc(100vh - 50px);
+  padding: 1rem 1.25rem 5rem;
+}
+.board-error { margin: 0 0 0.75rem; }
+.empty-board { margin: 0.75rem 0; }
+
+button {
+  font: inherit;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.045em;
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+}
+button:hover:not(:disabled) { background: var(--surface-2); border-color: var(--ink-faint); }
+button:disabled { opacity: 0.45; cursor: default; }
+button:focus-visible,
+.card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary:hover:not(:disabled) { filter: brightness(1.08); background: var(--accent); }
+
+.card {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  transition: border-color var(--motion), box-shadow var(--motion);
+}
+.card::before {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--rule);
+}
+.card.ready::before { background: var(--accent); }
+.card.broken::before { background: var(--alarm); }
+.card.selected {
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--rule));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 17%, transparent), var(--shadow);
+}
+
+.card-head {
+  flex: none;
+  padding: 0.52rem 0.72rem 0.48rem 0.95rem;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.card-title-row {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+}
+.card-drag-zone {
+  min-width: 0;
+  flex: 1;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  margin: -0.2rem 0 -0.2rem -0.32rem;
+  padding: 0.2rem 0.32rem;
+  border-radius: 5px;
+  cursor: grab;
+  touch-action: none;
+  transition: background-color var(--motion);
+}
+.card-drag-zone:hover {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.card-drag-zone:active { cursor: grabbing; }
+.drag-grip {
+  width: 12px;
+  height: 17px;
+  flex: none;
+  background-image: radial-gradient(var(--ink-faint) 1px, transparent 1.25px);
+  background-size: 5px 5px;
+  background-position: 1px 3px;
+  opacity: 0.68;
+}
+.card-drag-zone:hover .drag-grip {
+  opacity: 1;
+  background-image: radial-gradient(var(--accent) 1px, transparent 1.25px);
+}
+.card-title {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card-state {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+}
+.card-state.broken { color: var(--alarm); }
+
+.icon-button {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  color: var(--ink-soft);
+  background: transparent;
+  border-color: transparent;
+}
+.icon-button:hover:not(:disabled) { color: var(--accent); background: var(--surface-2); border-color: var(--rule-soft); }
+.icon-button svg { width: 16px; height: 16px; fill: currentColor; }
+.spin { animation: spin 900ms linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.card-menu { position: relative; flex: none; }
+.card-menu-popover {
+  position: absolute;
+  z-index: 12;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 132px;
+  padding: 4px;
+  background: var(--surface-raised);
+  border: 1px solid var(--rule);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  animation: pop-in 120ms ease-out;
+}
+.card-menu-popover button {
+  width: 100%;
+  padding: 0.45rem 0.55rem;
+  text-align: left;
+  color: var(--ink-soft);
+  background: transparent;
+  border-color: transparent;
+}
+.card-menu-popover button:hover:not(:disabled) {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.card-menu-popover .remove-card-action { color: var(--alarm); }
+
+.trust-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.18rem;
+}
+.restatement {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quality-warning {
+  margin: 0.35rem 0 0;
+  color: var(--warning, #8a5600);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+.facts {
+  display: flex;
+  gap: 0.6rem;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  white-space: nowrap;
+}
+.facts span + span::before { content: "·"; margin-right: 0.6rem; color: var(--rule); }
+.facts .stale { color: var(--signal); }
+
+.card-body {
+  flex: 1;
+  min-height: 0;
+  padding: 0.55rem 0.72rem 0.62rem 0.95rem;
+  display: flex;
+  flex-direction: column;
+}
+.chart-slot {
+  flex: 1;
+  min-height: 120px;
+  overflow: hidden;
+  isolation: isolate;
+}
+.chart-shell,
+.chart-render-frame,
+.chart-render-frame > div,
+.chart-shell .vega-embed,
+.chart-shell .vega-embed > div { width: 100%; height: 100%; }
+.chart-render-frame { transform-origin: top left; }
+.chart-shell.resizing-preview { overflow: hidden; }
+.chart-shell.resizing-preview .chart-render-frame { will-change: transform; }
+.chart-shell.compact {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.chart-shell.compact > .chart-render-frame,
+.chart-shell.compact .chart-render-frame > div,
+.chart-shell.compact .vega-embed,
+.chart-shell.compact .vega-embed > div { height: auto; }
+.chart-shell.scrollable {
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-color: var(--rule) transparent;
+  scrollbar-width: thin;
+}
+.chart-shell.scrollable > .chart-render-frame,
+.chart-shell.scrollable .chart-render-frame > div,
+.chart-shell.scrollable .vega-embed,
+.chart-shell.scrollable .vega-embed > div { height: auto; }
+.chart-shell svg { display: block; }
+.chart-notice {
+  /* The note carries its own dismissal, so it is a row rather than a
+     block. Declared here rather than in a second .chart-notice rule
+     further down: two rules for one selector is how padding quietly stops
+     applying six months from now. */
+  display: flex;
+  align-items: flex-start;
+  gap: 0.4rem;
+  align-self: flex-start;
+  max-width: 100%;
+  margin-bottom: 0.35rem;
+  padding: 0.2rem 0.45rem;
+  border-width: 0 0 0 2px;
+  border-radius: 0;
+  font-size: 9.5px;
+  line-height: 1.35;
+}
+
+.transient-panel { animation: panel-in var(--motion); }
+@keyframes panel-in {
+  from { opacity: 0; transform: translateY(-5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes pop-in {
+  from { opacity: 0; transform: translateY(-3px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.notice {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid;
+  border-radius: var(--r);
+}
+.notice.broken { color: var(--alarm); border-color: var(--alarm); background: color-mix(in srgb, var(--alarm) 7%, transparent); }
+.notice.hint { color: var(--signal); border-color: var(--signal); background: color-mix(in srgb, var(--signal) 8%, transparent); }
+
+/* One half of an exchange: what the card said, above the box you answer it
+   in. Deliberately the same amber as a hint rather than a third alert
+   colour -- it is the card waiting on you, not the card broken. */
+.exchange {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--signal);
+  border-left-width: 3px;
+  border-radius: var(--r);
+  background: color-mix(in srgb, var(--signal) 8%, transparent);
+}
+.exchange .eyebrow { color: var(--signal); }
+.exchange-said {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+.exchange .link {
+  align-self: flex-start;
+  margin-top: 0.15rem;
+  padding: 0;
+  color: var(--ink-soft);
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  border-radius: 0;
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+.exchange .link:hover:not(:disabled) { color: var(--accent); border-bottom-color: var(--accent); }
+
+.sql {
+  flex: none;
+  margin-top: 0.5rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--rule-soft);
+}
+.sql-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0.15rem 0;
+  color: var(--ink-faint);
+  background: transparent;
+  border: 0;
+  text-align: left;
+}
+.sql-toggle:hover:not(:disabled) { color: var(--accent); background: transparent; border-color: transparent; }
+.sql-chevron {
+  display: inline-block;
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1;
+  transform: rotate(0deg);
+  transition: transform var(--motion);
+}
+.sql.open .sql-chevron { transform: rotate(90deg); }
+.sql-drawer { padding-top: 0.45rem; animation: panel-in var(--motion); }
+.sql pre {
+  max-height: min(360px, 40vh);
+  margin: 0;
+  overflow: auto;
+  padding: 0.65rem 0.72rem;
+  color: var(--ink-soft);
+  background: var(--surface-2);
+  border: 1px solid var(--rule-soft);
+  border-radius: var(--r);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.empty-body { height: 100%; display: flex; flex-direction: column; gap: 0.7rem; }
+.ask { display: flex; gap: 0.4rem; }
+.ask input {
+  min-width: 0;
+  flex: 1;
+  padding: 0.45rem 0.6rem;
+  color: var(--ink);
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  font: inherit;
+  font-size: 13px;
+}
+.ask input:focus-visible { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+.refine {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-bottom: 0.5rem;
+  padding: 0.5rem;
+  background: color-mix(in srgb, var(--accent-soft) 45%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--rule-soft));
+  border-radius: var(--r);
+}
+.refine .ask input { font-size: 11px; background: var(--surface); }
+.refine .ask input::placeholder { color: var(--ink-faint); }
+
+.provider { display: flex; align-items: center; gap: 0.3rem; margin-bottom: 0.1rem; }
+.provider .eyebrow { margin-right: 0.15rem; }
+.provider button {
+  padding: 0.12rem 0.5rem;
+  color: var(--ink-faint);
+  background: none;
+  border: 1px solid var(--rule);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+}
+.provider button:hover:not(:disabled) { color: var(--ink-soft); border-color: var(--ink-faint); }
+.provider button.on { color: var(--signal); border-color: var(--signal); background: none; }
+.harder {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  cursor: pointer;
+  user-select: none;
+}
+.harder:hover { color: var(--ink-soft); }
+.harder input { margin: 0; accent-color: var(--accent); }
+.harder:has(input:checked) { color: var(--signal); }
+.examples { display: flex; flex-direction: column; gap: 0.3rem; }
+.examples button {
+  padding: 0.2rem 0 0.2rem 0.6rem;
+  color: var(--ink-soft);
+  background: none;
+  border: 0;
+  border-left: 1px solid var(--rule);
+  text-align: left;
+  font-size: 11px;
+}
+.examples button:hover { color: var(--accent); background: none; border-left-color: var(--accent); }
+
+.add-card-primary {
+  min-width: 126px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  padding: 0 1rem 0 0.82rem;
+  color: #fff;
+  background: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 80%, black);
+  border-radius: 999px;
+  box-shadow: 0 5px 16px color-mix(in srgb, var(--accent) 24%, transparent);
+  font-size: 11.5px;
+  font-weight: 650;
+  line-height: 1;
+  transition: transform var(--motion), box-shadow var(--motion), filter var(--motion);
+}
+.add-card-plus {
+  font-family: var(--sans);
+  font-size: 23px;
+  font-weight: 350;
+  line-height: 1;
+}
+.add-card-primary:hover:not(:disabled) {
+  background: var(--accent);
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+  box-shadow: 0 7px 19px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.react-grid-item {
+  transition: transform var(--motion), width var(--motion), height var(--motion);
+}
+.react-grid-item.cssTransforms { transition-property: transform, width, height; }
+.react-grid-item.react-draggable-dragging,
+.react-grid-item.resizing { transition: none; }
+.react-grid-item.react-draggable-dragging { z-index: 20; }
+.react-grid-item.react-draggable-dragging .card {
+  border-color: color-mix(in srgb, var(--accent) 56%, var(--rule));
+  box-shadow: 0 16px 36px color-mix(in srgb, var(--ink) 18%, transparent);
+}
+.react-grid-item.react-grid-placeholder {
+  background: color-mix(in srgb, var(--accent) 13%, var(--surface));
+  border: 1px dashed color-mix(in srgb, var(--accent) 72%, var(--rule));
+  border-radius: var(--r);
+  opacity: 1;
+}
+.react-resizable-handle { opacity: 0.35; }
+.layout-locked .react-resizable-handle { display: none; }
+
+.vg-tooltip {
+  max-width: 320px !important;
+  padding: 8px 10px !important;
+  color: var(--ink) !important;
+  background: var(--surface-raised) !important;
+  border: 1px solid var(--rule) !important;
+  border-radius: 5px !important;
+  box-shadow: var(--shadow) !important;
+  font-family: var(--mono) !important;
+  font-size: 11px !important;
+}
+
+@media (max-width: 900px) {
+  .masthead > .eyebrow { display: none; }
+  .facts span:nth-child(2) { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* The dashboard's own setting, at the end of the dashboard's own row. */
+.schema-picker { position: relative; display: flex; align-items: center; margin-left: auto; }
+.schema-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.55rem;
+  color: var(--ink-soft);
+  background: none;
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+}
+.schema-trigger:hover:not(:disabled) { color: var(--accent); border-color: var(--accent); }
+.schema-trigger[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); }
+.schema-name { font-family: var(--mono); font-size: 11.5px; color: var(--ink); }
+.schema-trigger svg { opacity: 0.55; }
+
+.schema-panel {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 40;
+  display: flex;
+  width: min(560px, 82vw);
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r);
+  box-shadow: 0 10px 28px rgb(13 31 53 / 14%);
+}
+.schema-list {
+  flex: none;
+  width: 168px;
+  margin: 0;
+  padding: 0.3rem;
+  list-style: none;
+  border-right: 1px solid var(--rule-soft);
+}
+.schema-list button {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  color: var(--ink);
+  background: none;
+  border: 0;
+  border-radius: var(--r);
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+.schema-list button:hover, .schema-list button.on { background: var(--surface-2); }
+.schema-list button.on { color: var(--accent); }
+.schema-list button[aria-current="true"]::after { content: " ·  current"; }
+.schema-count { color: var(--ink-faint); font-size: 10px; }
+
+.schema-tables { flex: 1; min-width: 0; padding: 0.55rem 0.7rem; }
+.schema-tables > ul {
+  margin: 0.3rem 0 0.55rem;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  list-style: none;
+}
+.schema-tables li {
+  display: grid;
+  grid-template-columns: 0.9rem minmax(0, max-content) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.16rem 0;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+.schema-tables li.inert { color: var(--ink-faint); }
+.schema-tables .tick { color: var(--accent); }
+.schema-tables li.inert .tick { color: var(--rule); }
+.table-name { color: inherit; white-space: nowrap; }
+.schema-tables li.answerable .table-name { color: var(--ink); }
+/* Wraps rather than truncates. "not modelled -- nobody has defined what
+   its columns mean" is the reason a row is inert, and a reason cut off at
+   "nobody has..." is not one. */
+.table-note { color: var(--ink-faint); line-height: 1.4; }
+.schema-caveat {
+  margin: 0.4rem 0 0;
+  color: var(--ink-faint);
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
+.chart-notice > span { flex: 1; min-width: 0; }
+.notice-dismiss {
+  flex: none;
+  padding: 0 0.2rem;
+  color: inherit;
+  background: none;
+  border: 0;
+  border-radius: var(--r);
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.6;
+}
+.notice-dismiss:hover { opacity: 1; background: color-mix(in srgb, var(--signal) 14%, transparent); }

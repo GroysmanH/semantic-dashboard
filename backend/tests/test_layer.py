@@ -1,0 +1,283 @@
+"""Layer loading is fail-fast: a malformed layer is a startup error, not a
+mystery at query time."""
+
+import textwrap
+
+import pytest
+
+from app.layer.loader import load_layer, synonym_index
+from app.layer.models import LayerError
+from pydantic import ValidationError
+
+MINIMAL = """
+entity: jobs
+label: Jobs
+table: ddh.fct_well_interventions
+time_column: intervention_date
+joins:
+  wells:
+    to: ddh.dim_wells
+    condition: wells.well_id = fct_well_interventions.well_id
+dimensions:
+  intervention_date:
+    label: date
+    type: date
+    grains: [day, month]
+  region:
+    label: region
+    type: string
+    via: wells.region_name
+measures:
+  net_gain:
+    label: net gain
+    agg: sum
+    column: net_gain_bbl
+synonyms:
+  net_gain: [uplift]
+"""
+
+
+def write(tmp_path, name, body):
+    p = tmp_path / f"{name}.yaml"
+    p.write_text(textwrap.dedent(body))
+    return tmp_path
+
+
+# -- the real layer ------------------------------------------------------
+
+def test_real_layer_loads_operational_entities(layer):
+    assert set(layer) == {
+        "well_interventions", "production", "downtime",
+        "production_performance", "field_targets",
+        # Two entities over one table, split on its `type` discriminator.
+        "oil_mined", "oil_delivered",
+    }
+
+
+def test_entities_declare_their_schema_through_the_table_they_name(layer):
+    """The schema a dashboard scopes to is derived, never written twice.
+
+    A `schema:` key beside `table:` would be the same fact in two places,
+    free to disagree; this is the one place that would notice.
+    """
+    from app.layer.scope import schema_of, schemas
+
+    assert schemas(layer) == ["ddh", "dm_planning", "dm_upstream"]
+    assert schema_of(layer["production"]) == "ddh"
+    assert schema_of(layer["field_targets"]) == "dm_planning"
+
+
+def test_via_dimension_resolves_to_a_declared_join(layer):
+    entity = layer["well_interventions"]
+    assert entity.dimensions["region"].via == "wells.region_name"
+    assert "wells" in entity.joins
+
+
+def test_plain_dimension_column_defaults_to_its_key(layer):
+    assert layer["well_interventions"].dimensions["contractor"].column == "contractor"
+
+
+def test_intervention_status_mapping_is_reviewed_and_manager_queryable(layer):
+    entity = layer["well_interventions"]
+    assert not entity.has_low_confidence
+    assert entity.dimensions["status"].values == [
+        "COMPLETED", "CANCELLED", "IN_PROGRESS"
+    ]
+
+
+def test_production_entity_is_fully_verified(layer):
+    assert not layer["production"].has_low_confidence
+
+
+@pytest.mark.parametrize("entity_name", ["production", "well_interventions", "downtime"])
+def test_well_backed_entities_expose_operational_dimensions(layer, entity_name):
+    assert {
+        "asset", "operator", "basin", "operating_status", "lift_method"
+    } <= set(layer[entity_name].dimensions)
+
+
+def test_performance_entity_exposes_actual_target_variance_and_attainment(layer):
+    entity = layer["production_performance"]
+    assert entity.table == "ddh.mart_production_performance_monthly"
+    assert {"actual_oil", "target_oil", "variance_oil"} <= set(entity.measures)
+    assert entity.derived["attainment"].formula == "actual_oil / target_oil * 100"
+
+
+# -- structural validation ----------------------------------------------
+
+def test_minimal_layer_loads(tmp_path):
+    layer = load_layer(write(tmp_path, "jobs", MINIMAL))
+    assert layer["jobs"].label == "Jobs"
+
+
+def test_invalid_utf8_definition_is_a_layer_error(tmp_path):
+    """A decode failure is a malformed definition, not an implementation leak."""
+    (tmp_path / "jobs.yaml").write_bytes(b"entity: jobs\n\xff")
+
+    with pytest.raises(LayerError, match="valid UTF-8"):
+        load_layer(tmp_path)
+
+
+def test_via_pointing_at_undeclared_join_is_rejected(tmp_path):
+    body = MINIMAL.replace("via: wells.region_name", "via: rigs.region_name")
+    with pytest.raises(LayerError, match="undeclared join alias"):
+        load_layer(write(tmp_path, "jobs", body))
+
+
+def test_grains_on_a_string_dimension_are_rejected(tmp_path):
+    body = MINIMAL.replace(
+        "    label: region\n    type: string\n",
+        "    label: region\n    type: string\n    grains: [month]\n",
+    )
+    with pytest.raises(LayerError, match="only valid on date dimensions"):
+        load_layer(write(tmp_path, "jobs", body))
+
+
+def test_synonym_pointing_at_an_unknown_field_is_rejected(tmp_path):
+    body = MINIMAL.replace("  net_gain: [uplift]", "  revenue: [money]")
+    with pytest.raises(LayerError, match="unknown field"):
+        load_layer(write(tmp_path, "jobs", body))
+
+
+def test_star_column_outside_count_is_rejected(tmp_path):
+    body = MINIMAL.replace("    agg: sum\n    column: net_gain_bbl",
+                           '    agg: sum\n    column: "*"')
+    with pytest.raises(LayerError, match="only valid with agg: count"):
+        load_layer(write(tmp_path, "jobs", body))
+
+
+def test_dimension_declaring_both_via_and_column_is_rejected(tmp_path):
+    body = MINIMAL.replace("    via: wells.region_name",
+                           "    via: wells.region_name\n    column: region_name")
+    with pytest.raises(LayerError, match="either `via` or `column`"):
+        load_layer(write(tmp_path, "jobs", body))
+
+
+def test_unknown_key_in_a_definition_is_rejected(tmp_path):
+    """extra=forbid: a typo'd key is an error, never a silently ignored one."""
+    body = MINIMAL.replace("    agg: sum\n", "    agg: sum\n    aggregation: sum\n")
+    with pytest.raises(LayerError):
+        load_layer(write(tmp_path, "jobs", body))
+
+
+def test_empty_directory_is_rejected(tmp_path):
+    with pytest.raises(LayerError, match="no entity definitions"):
+        load_layer(tmp_path)
+
+
+# -- synonym index (feeds deterministic ambiguity detection) -------------
+
+def test_synonym_index_maps_terms_to_fields(layer):
+    index = synonym_index(layer)
+    assert index["uplift"]["well_interventions"] == ["net_gain"]
+    assert "region" in index
+    # 'area' is a synonym for region on every operational entity, and on
+    # planning too -- shared dimension vocabulary is exactly why scope is
+    # judged on measures rather than on words like this one.
+    assert set(index["area"]) == {
+        "well_interventions", "production", "downtime",
+        "production_performance", "field_targets",
+    }
+
+
+def test_bare_yaml_on_key_is_named_as_the_cause(tmp_path):
+    """The design doc writes `on:`; YAML 1.1 reads that as the boolean true.
+    Layer files are hand-edited, so the error has to name the trap."""
+    body = MINIMAL.replace("    condition: wells.well_id", "    on: wells.well_id")
+    with pytest.raises(LayerError, match="bare `on:` as true"):
+        load_layer(write(tmp_path, "jobs", body))
+
+
+def test_quoted_on_key_still_works(tmp_path):
+    body = MINIMAL.replace("    condition: wells.well_id", '    "on": wells.well_id')
+    layer = load_layer(write(tmp_path, "jobs", body))
+    assert layer["jobs"].joins["wells"].condition.startswith("wells.well_id")
+
+
+@pytest.mark.parametrize("bad", [
+    "wells.well_id = (SELECT 1)",
+    "1=1; DROP TABLE ddh.dim_wells",
+    "wells.well_id > fct.well_id",
+])
+def test_non_equijoin_conditions_are_rejected(tmp_path, bad):
+    """The join condition is the only raw SQL text in the compiler. It is
+    human-authored, but still constrained so the layer cannot smuggle in a
+    subquery or a second statement."""
+    body = MINIMAL.replace("condition: wells.well_id = fct_well_interventions.well_id",
+                           f"condition: {bad}")
+    with pytest.raises(LayerError, match="equijoin"):
+        load_layer(write(tmp_path, "jobs", body))
+
+
+def test_and_ed_equijoin_is_accepted(tmp_path):
+    body = MINIMAL.replace(
+        "condition: wells.well_id = fct_well_interventions.well_id",
+        "condition: wells.well_id = fct_well_interventions.well_id AND "
+        "wells.field_name = fct_well_interventions.contractor")
+    load_layer(write(tmp_path, "jobs", body))
+
+
+# -- derived measures and geo (added with the analytical grammar) ---------
+
+def test_a_derived_formula_may_not_name_a_raw_column(layer):
+    """The guard that keeps a ratio of sums from becoming a sum of ratios.
+    Formulas compose measure names, which already carry their aggregation."""
+    from app.layer.models import Entity
+
+    with pytest.raises(ValidationError) as e:
+        Entity.model_validate({
+            "entity": "x", "label": "X", "table": "ddh.t",
+            "dimensions": {"d": {"label": "d", "type": "string"}},
+            "measures": {"oil": {"label": "oil", "agg": "sum", "column": "oil_bbl"}},
+            "derived": {"bad": {"label": "bad", "formula": "oil_bbl / 2"}},
+        })
+    assert "not a base measure" in str(e.value)
+
+
+def test_a_derived_formula_may_not_call_a_function(layer):
+    from app.layer.models import Derived
+
+    with pytest.raises(ValidationError) as e:
+        Derived(label="x", formula="sum(oil) / gas")
+    assert "may not call functions" in str(e.value)
+
+
+def test_derived_measures_may_not_nest(layer):
+    from app.layer.models import Entity
+
+    with pytest.raises(ValidationError) as e:
+        Entity.model_validate({
+            "entity": "x", "label": "X", "table": "ddh.t",
+            "dimensions": {"d": {"label": "d", "type": "string"}},
+            "measures": {"oil": {"label": "oil", "agg": "sum", "column": "oil_bbl"},
+                         "gas": {"label": "gas", "agg": "sum", "column": "gas_mcf"}},
+            "derived": {"a": {"label": "a", "formula": "oil / gas"},
+                        "b": {"label": "b", "formula": "a / gas"}},
+        })
+    assert "formulas compose base measures only" in str(e.value)
+
+
+def test_geo_must_point_at_a_declared_dimension_and_join(layer):
+    from app.layer.models import Entity
+
+    base = {"entity": "x", "label": "X", "table": "ddh.t",
+            "dimensions": {"d": {"label": "d", "type": "string"}},
+            "measures": {"oil": {"label": "oil", "agg": "sum", "column": "oil_bbl"}}}
+
+    with pytest.raises(ValidationError) as e:
+        Entity.model_validate({**base, "geo": {"lat": "lat", "lon": "lon",
+                                               "of": "nope"}})
+    assert "not a dimension" in str(e.value)
+
+    with pytest.raises(ValidationError) as e:
+        Entity.model_validate({**base, "geo": {"lat": "w.latitude",
+                                               "lon": "w.longitude", "of": "d"}})
+    assert "undeclared join alias" in str(e.value)
+
+
+def test_the_production_layer_declares_only_conventions(layer):
+    """Arithmetic belongs in the ratio transform. What earns a declaration
+    is a definition a business has an opinion about -- so this list stays
+    short, and a growing one is a smell rather than progress."""
+    assert set(layer["production"].derived) == {"water_cut", "uptime_pct"}
+    assert layer["production"].geo.of == "well_name"
